@@ -139,7 +139,7 @@ def save_puzzle(puzzle, solution, base_dir="puzzles"):
 
 def visualize_puzzle(puzzle, solution=None):
     """Visualize the generated puzzle using pygame."""
-    from .pygame_renderer import KenKenRenderer
+    from .visualizer import KenKenRenderer
     from .cage import Cage
     
     # Convert dictionary cages to Cage objects
@@ -157,7 +157,7 @@ def visualize_puzzle(puzzle, solution=None):
     
     while running:
         renderer.draw_grid(cage_objects, solution)
-        renderer.handle_events()
+        renderer.handle_events(lambda: print("Solve button clicked"))
 
 if __name__ == "__main__":
     size = int(input("Enter KenKen puzzle size (3-9): "))

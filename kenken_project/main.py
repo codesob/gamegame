@@ -4,8 +4,11 @@ from pathlib import Path
 from src.solver import Solver
 from src.puzzle import Puzzle
 from src.cage import Cage
-from src.pygame_renderer import KenKenRenderer
-from src.process_visualizer import ProcessVisualizer
+from src.visualizer import KenKenRenderer, ProcessVisualizer
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox
+import os
+from src.generator import generate_kenken, save_puzzle
 
 def load_puzzle_from_file(filepath):
     """Load puzzle and solution from JSON file."""
@@ -82,43 +85,120 @@ def load_puzzle_from_file(filepath):
     except Exception as e:
         raise ValueError(f"Error loading puzzle: {str(e)}")
 
-def main():
-    parser = argparse.ArgumentParser(description='KenKen Puzzle Solver')
-    parser.add_argument('--puzzle', type=str, required=True, help='Path to puzzle JSON file')
-    parser.add_argument('--method', choices=['backtracking', 'mrv', 'lcv', 'heuristics'],
-                      default='heuristics', help='Solving method')
-    parser.add_argument('--visualize', action='store_true', help='Visualize the solution')
-    args = parser.parse_args()
+def center_window(window, width, height):
+    """Center a window on the screen."""
+    screen_width = window.winfo_screenwidth()
+    screen_height = window.winfo_screenheight()
+    x = (screen_width // 2) - (width // 2)
+    y = (screen_height // 2) - (height // 2)
+    window.geometry(f"{width}x{height}+{x}+{y}")
 
-    try:
-        # Load puzzle
-        puzzle, solution = load_puzzle_from_file(args.puzzle)
-        
-        # Create solver and visualizer
-        process_viz = ProcessVisualizer(puzzle) if args.visualize else None
-        solver = Solver(puzzle,
-                      update_callback=process_viz.update if args.visualize else None,
-                      delay_ms=300 if args.visualize else 0)
-        
-        # Start visualization if requested
-        if args.visualize and not process_viz.start():
-            print("Visualization cancelled by user")
-            return
-        
-        # Solve puzzle
-        success, metrics = solver.solve(method=args.method)
-        
-        # Show results
-        print(f"\nSolved using {args.method}!")
-        print(f"Time: {metrics['time_seconds']:.3f} seconds")
-        print(f"Nodes visited: {metrics['nodes_visited']}")
-        
-        # Finish visualization if active
-        if args.visualize:
-            process_viz.finish(success, args.method)
-            
-    except Exception as e:
-        print(f"Error: {str(e)}")
+def main_window():
+    def open_solve_window():
+        solve_window = tk.Toplevel(root)
+        solve_window.title("Solve KenKen Puzzle")
+        center_window(solve_window, 500, 350)
+        solve_window.configure(bg="lightyellow")
+
+        tk.Label(solve_window, text="Select Puzzle Size", font=("Arial", 20), bg="lightyellow").pack(pady=20)
+
+        # Add a scrollable frame for the buttons
+        canvas = tk.Canvas(solve_window, bg="lightyellow")
+        scrollbar = tk.Scrollbar(solve_window, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas, bg="lightyellow")
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        for size in range(3, 10):
+            tk.Button(scrollable_frame, text=f"{size}x{size}", font=("Arial", 16), command=lambda s=size: open_size_window(s), bg="lightblue", width=10, height=2).pack(pady=5)
+
+    def open_size_window(size):
+        """Open a new window for the selected puzzle size."""
+        size_window = tk.Toplevel(root)
+        size_window.title(f"{size}x{size} Puzzle")
+        center_window(size_window, 600, 400)
+        size_window.configure(bg="lightgray")
+
+        tk.Label(size_window, text=f"{size}x{size} Puzzle", font=("Arial", 20, "bold"), bg="lightgray").pack(pady=20)
+
+        # Dropdown to select a puzzle from the puzzles folder
+        puzzle_files = [f for f in os.listdir("puzzles") if f.startswith(f"kenken_{size}x{size}") and f.endswith(".json")]
+        selected_puzzle = tk.StringVar(size_window)
+        selected_puzzle.set("Select a puzzle")
+
+        tk.OptionMenu(size_window, selected_puzzle, *puzzle_files).pack(pady=10)
+
+        # Dropdown to select solving algorithm
+        algorithms = ["backtracking", "mrv", "lcv", "heuristics"]
+        selected_algorithm = tk.StringVar(size_window)
+        selected_algorithm.set("Select an algorithm")
+
+        tk.OptionMenu(size_window, selected_algorithm, *algorithms).pack(pady=10)
+
+        def solve_puzzle():
+            puzzle_file = selected_puzzle.get()
+            algorithm = selected_algorithm.get()
+
+            if puzzle_file == "Select a puzzle" or algorithm == "Select an algorithm":
+                messagebox.showerror("Error", "Please select both a puzzle and an algorithm.")
+                return
+
+            puzzle_path = os.path.join("puzzles", puzzle_file)
+            try:
+                puzzle, _ = load_puzzle_from_file(puzzle_path)
+                process_viz = ProcessVisualizer(puzzle)  # Ensure process_viz is initialized here
+                solver = Solver(puzzle, update_callback=process_viz.update)
+                success, metrics = process_viz.start(solver, algorithm)
+                messagebox.showinfo("Result", f"Solved: {success}\nMetrics: {metrics}\nNodes Visited: {metrics['nodes_visited']}\nTime Taken: {metrics['time_seconds']:.2f} seconds")
+            except Exception as e:
+                messagebox.showerror("Error", str(e))
+
+        tk.Button(size_window, text="Solve", font=("Arial", 16), command=solve_puzzle, bg="green", fg="white").pack(pady=20)
+
+    def open_generate_window():
+        generate_window = tk.Toplevel(root)
+        generate_window.title("Generate KenKen Puzzle")
+        center_window(generate_window, 500, 300)
+        generate_window.configure(bg="lightgreen")
+
+        tk.Label(generate_window, text="Enter size (3 to 9):", font=("Arial", 18), bg="lightgreen").pack(pady=20)
+        size_entry = tk.Entry(generate_window, font=("Arial", 16))
+        size_entry.pack(pady=10)
+
+        def generate_puzzle():
+            try:
+                size = int(size_entry.get())
+                if size < 3 or size > 9:
+                    raise ValueError
+                puzzle, solution = generate_kenken(size)
+                save_puzzle(puzzle, solution)
+                messagebox.showinfo("Success", f"Generated {size}x{size} puzzle and saved to puzzles folder.")
+            except ValueError:
+                messagebox.showerror("Error", "Please enter a valid size between 3 and 9.")
+
+        tk.Button(generate_window, text="Generate", font=("Arial", 16), command=generate_puzzle, bg="orange", fg="white").pack(pady=20)
+
+    root = tk.Tk()
+    root.title("KenKen Puzzle")
+    root.geometry("600x400")
+    center_window(root, 600, 400)
+    root.configure(bg="lightblue")
+
+    tk.Label(root, text="KenKen Puzzle", font=("Arial", 28, "bold"), bg="lightblue").pack(pady=30)
+
+    tk.Button(root, text="Solve", font=("Arial", 18, "bold"), command=open_solve_window, width=20, bg="darkgreen", fg="white", relief="raised", bd=3).pack(pady=20)
+    tk.Button(root, text="Generate", font=("Arial", 18, "bold"), command=open_generate_window, width=20, bg="darkblue", fg="white", relief="raised", bd=3).pack(pady=20)
+
+    root.mainloop()
 
 if __name__ == "__main__":
-    main()
+    main_window()

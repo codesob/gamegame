@@ -210,6 +210,11 @@ class Solver:
 
     def solve(self, method: str = 'heuristics', find_all: bool = False) -> Tuple[bool, Dict[str, float]]:
         """Main solving interface. Returns (success, metrics)."""
+        print(f"Solving with method: {method}")
+        print("Initial puzzle state:")
+        for row in self.puzzle.get_grid_copy():
+            print(row)
+
         start_time = time.time()
         self.nodes_visited = 0
         self.solution_count = 0
@@ -236,6 +241,11 @@ class Solver:
             'nodes_visited': self.nodes_visited,
             'method': method
         }
+
+        print("Final puzzle state:")
+        for row in self.puzzle.get_grid_copy():
+            print(row)
+        print(f"Solved: {success}, Metrics: {metrics}")
             
         return success, metrics
 
@@ -436,3 +446,7 @@ class Solver:
                 self._clear_domain_cache(row, col)
 
         return False
+
+    def get_solution(self) -> List[List[int]]:
+        """Retrieve the current state of the puzzle grid as the solution."""
+        return self.puzzle.get_grid_copy()
