@@ -222,74 +222,86 @@ class VisionSolver:
         """Detect a KenKen puzzle from a given frame"""
         try:
             print("Starting puzzle detection...")
-            # Convert to grayscale
+            if frame is None:
+                print("Error: No input frame provided")
+                return None, None
+
+            # Convert to grayscale and normalize
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            gray = cv2.normalize(gray, None, 0, 255, cv2.NORM_MINMAX)
             
-            # Enhanced preprocessing
-            # First, blur to reduce noise
-            blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+            # Enhanced preprocessing with bilateral filter for edge preservation
+            denoised = cv2.bilateralFilter(gray, 9, 75, 75)
             
-            # Apply adaptive thresholding with more aggressive parameters
+            # Apply adaptive thresholding with optimized parameters
             binary = cv2.adaptiveThreshold(
-                blurred,
+                denoised,
                 255,
                 cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                 cv2.THRESH_BINARY_INV,
-                21,  # Increased block size
-                8    # Increased C value
+                25,  # Increased block size for better local adaptation
+                12   # Increased C value for stronger thresholding
             )
             
-            # Dilate to connect nearby components
+            # Morphological operations to clean up the image
             kernel = np.ones((3, 3), np.uint8)
-            dilated = cv2.dilate(binary, kernel, iterations=1)
+            morph = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+            morph = cv2.morphologyEx(morph, cv2.MORPH_OPEN, kernel)
             
-            # Find the puzzle grid with enhanced parameters
-            contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            # Find contours with hierarchy to better identify the puzzle grid
+            contours, hierarchy = cv2.findContours(morph, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+            
+            # Debug: Show preprocessing steps
+            cv2.imshow('1. Grayscale', gray)
+            cv2.imshow('2. Denoised', denoised)
+            cv2.imshow('3. Binary', binary)
+            cv2.imshow('4. Morphology', morph)
+            
+            # Find the puzzle grid
             puzzle_contour = None
             max_area = 0
+            min_area = frame.shape[0] * frame.shape[1] * 0.2  # At least 20% of frame
 
-            print(f"Found {len(contours)} contours")
-            
-            # Debug: Draw all contours on a copy of the frame
             debug_frame = frame.copy()
-            cv2.drawContours(debug_frame, contours, -1, (0, 255, 0), 2)
-            cv2.imshow('All Contours', debug_frame)
+            if contours:
+                cv2.drawContours(debug_frame, contours, -1, (0, 255, 0), 2)
+                cv2.imshow('5. All Contours', debug_frame)
 
             for contour in contours:
                 area = cv2.contourArea(contour)
-                if area > 1000:  # Reduced minimum area threshold
+                if area > min_area:  # Filter small contours
                     perimeter = cv2.arcLength(contour, True)
                     approx = cv2.approxPolyDP(contour, 0.02 * perimeter, True)
 
-                    # Draw the approximated contour
+                    # Show each significant contour
                     debug_frame2 = frame.copy()
                     cv2.drawContours(debug_frame2, [approx], -1, (0, 0, 255), 2)
-                    cv2.imshow(f'Contour {area}', debug_frame2)
+                    cv2.imshow(f'Contour {area:.0f}', debug_frame2)
 
                     if len(approx) == 4:  # Looking for quadrilateral
                         x, y, w, h = cv2.boundingRect(approx)
                         aspect_ratio = w / float(h)
-                        print(f"Found quadrilateral - Area: {area}, Aspect ratio: {aspect_ratio}")
+                        print(f"Found quadrilateral - Area: {area:.0f}, Aspect ratio: {aspect_ratio:.2f}")
                         
                         # More lenient aspect ratio check
                         if 0.7 <= aspect_ratio <= 1.3 and area > max_area:
                             puzzle_contour = approx
                             max_area = area
-                            print(f"New best contour - Area: {area}, Aspect ratio: {aspect_ratio}")
+                            print(f"New best contour - Area: {area:.0f}, Aspect ratio: {aspect_ratio:.2f}")
 
             if puzzle_contour is None:
                 print("Could not find puzzle grid in image")
-                return None, dilated  # Return preprocessed image for debugging
+                return None, morph
 
             # Draw the final selected puzzle contour
             debug_frame3 = frame.copy()
             cv2.drawContours(debug_frame3, [puzzle_contour], -1, (255, 0, 0), 3)
-            cv2.imshow('Selected Puzzle Contour', debug_frame3)
+            cv2.imshow('6. Selected Puzzle Contour', debug_frame3)
 
             # Get perspective transform
             puzzle_points = puzzle_contour.reshape(4, 2)
             rect = self._order_points(puzzle_points.astype(np.float32))
-
+            
             # Calculate output size (make it square)
             width = int(max(
                 np.linalg.norm(rect[1] - rect[0]),
@@ -300,9 +312,11 @@ class VisionSolver:
                 np.linalg.norm(rect[3] - rect[0])
             ))
             size = max(width, height)
-
-            # Ensure size is divisible by puzzle size
-            size = size - (size % self.size)
+            
+            # Ensure size is divisible by puzzle size and has some minimum value
+            min_cell_pixels = 40  # Minimum pixels per cell for readable numbers
+            min_size = self.size * min_cell_pixels
+            size = max(size - (size % self.size), min_size)
 
             dst_points = np.array([
                 [0, 0],
@@ -314,23 +328,28 @@ class VisionSolver:
             # Apply perspective transform
             transform_matrix = cv2.getPerspectiveTransform(rect, dst_points)
             warped = cv2.warpPerspective(frame, transform_matrix, (size, size))
-
-            # Show the warped image
-            cv2.imshow('Warped Puzzle', warped)
+            
+            # Additional image enhancement on warped image
+            warped_gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
+            warped_gray = cv2.normalize(warped_gray, None, 0, 255, cv2.NORM_MINMAX)
+            
+            # Show the warped and enhanced images
+            cv2.imshow('7. Warped Puzzle', warped)
+            cv2.imshow('8. Enhanced Warped', warped_gray)
 
             # Detect cages and create puzzle
-            cages = self._detect_cages(warped)
+            cages = self._detect_cages(warped_gray)
             if not cages:
                 print("Failed to detect cages")
-                return None, dilated
+                return None, morph
 
             # Create puzzle from detected cages
-            puzzle = self._create_puzzle_from_vision(cages, warped)
+            puzzle = self._create_puzzle_from_vision(cages, warped_gray)
             if puzzle is None:
                 print("Failed to create valid puzzle from detected cages")
-                return None, dilated
+                return None, morph
 
-            return puzzle, dilated
+            return puzzle, morph
 
         except Exception as e:
             print(f"Error in puzzle detection: {str(e)}")
@@ -443,9 +462,9 @@ class VisionSolver:
                 return not np.any(line_region > 127)
             else:  # Same column
                 y_min = min(y1, y2)
-                y_max = y1 # Corrected typo here, should be y2
+                y_max = y2
                 x = x1
-                line_region = thick_lines[y_min:y_max, x - 2:x + 3] #Corrected typo here, should be y_min:y_max
+                line_region = thick_lines[y_min:y_max, x - 2:x + 3]
                 return not np.any(line_region > 127)
 
         # Find cages using flood fill
@@ -656,37 +675,59 @@ class VisionSolver:
         """Get puzzle from vision, generator, or demo"""
         if self.use_generator:
             if not self.generated_puzzle:
-                return self.generate_new_puzzle()
-            return json.dumps(self.generated_puzzle)
+                puzzle_json = self.generate_new_puzzle()
+                print("Generated new puzzle")
+                return puzzle_json, None, None
 
-        # Try to detect a puzzle from the webcam
+            print("Using existing generated puzzle")
+            return json.dumps(self.generated_puzzle), None, None
+
+        # Try to detect a puzzle from the webcam/image
         if self.test_image_path:
             print(f"Loading test image from: {self.test_image_path}")
             frame = cv2.imread(self.test_image_path)
             if frame is None:
                 print(f"Failed to load test image from {self.test_image_path}")
-                return None, None # Return None for puzzle and processed image
+                return None, None, None
         else:
+            print("Capturing frame from webcam...")
             ret, frame = self.cap.read()
             if not ret or frame is None:
                 print("Failed to capture frame from webcam")
-                return None, None # Return None for puzzle and processed image
-        puzzle, processed_image = self.detect_puzzle(frame) # Pass frame to detect_puzzle
+                return None, None, None
 
+        # Clear any existing detection windows
+        for window in ['1. Grayscale', '2. Denoised', '3. Binary', '4. Morphology', 
+                      '5. All Contours', '6. Selected Puzzle Contour', 
+                      '7. Warped Puzzle', '8. Enhanced Warped']:
+            cv2.destroyWindow(window)
+
+        print("\nAttempting puzzle detection...")
+        puzzle, processed_image = self.detect_puzzle(frame)
 
         if puzzle is None:
-            print("Using demo puzzle since detection failed")
-            return self._get_puzzle_json(self.puzzle), frame, None # Return original frame and None for processed if detection fails
+            print("\nPuzzle detection failed, using demo puzzle")
+            print("Debug tips:")
+            print("1. Make sure puzzle is well-lit and clearly visible")
+            print("2. Hold the puzzle straight and center it in the frame")
+            print("3. Check the debug windows to see what the detection sees")
+            print("4. Try adjusting the camera angle or lighting")
+            return self._get_puzzle_json(self.puzzle), frame, None
 
-        # Create a new puzzle from the detected cages
+        # Successfully detected puzzle
+        print("\nPuzzle detected successfully!")
+        print(f"- Found {len(puzzle.cages)} cages")
+        print("- Grid size:", puzzle.size)
+        print("\nPress 's' to solve or 'q' to exit")
+        
         try:
             self.puzzle = puzzle
             self.visualizer = KenKenVisualizer(puzzle)
-            return self._get_puzzle_json(puzzle), frame, processed_image # Return processed image for display
+            return self._get_puzzle_json(puzzle), frame, processed_image
         except Exception as e:
-            print(f"Error creating puzzle: {str(e)}")
+            print(f"Error creating puzzle visualization: {str(e)}")
             print("Falling back to demo puzzle")
-            return self._get_puzzle_json(self.puzzle), frame, None # Return original frame and None for processed if puzzle creation fails
+            return self._get_puzzle_json(self.puzzle), frame, None
 
     def use_generated_puzzle(self, puzzle):
         """Set a generated puzzle to be used instead of detection"""
@@ -840,16 +881,17 @@ if __name__ == "__main__":
             # Set the test image path
             solver.test_image_path = image_path
 
-        # Continuous loop for webcam processing
-        if not args.generate and not args.image: # Only loop if using webcam
+        # Main loop
+        try:
             while True:
                 # First attempt puzzle detection only
-                puzzle_json, original_frame, processed_image = solver.capture_puzzle()
-
+                puzzle_json, frame, processed = solver.capture_puzzle()
+                
                 if puzzle_json:
                     print("\nPuzzle detected! Press 's' to solve or 'q' to exit")
-                    solver._update_display(original_frame, processed_image)
-
+                    if frame is not None:
+                        solver._update_display(frame, processed)
+                    
                     while True:
                         key = cv2.waitKey(1) & 0xFF
                         if key == ord('s'):
@@ -857,57 +899,34 @@ if __name__ == "__main__":
                             success, puzzle = solver.solve_puzzle(puzzle_json)
                             if success:
                                 print("Puzzle solved successfully!")
-                                solver._update_display(original_frame, processed_image)
+                                solver._update_display(frame, processed)
+                                plt.show(block=True)
                             else:
                                 print("Failed to solve the puzzle")
                             break
                         elif key == ord('q'):
                             print("\nExiting...")
-                            return
+                            solver.release()
+                            cv2.destroyAllWindows()
+                            sys.exit(0)
                 else:
                     print("No puzzle detected. Adjust the camera position and try again.")
-                    ret, frame = solver.cap.read()
-                    if ret and frame is not None:
+                    ret, frame = solver.cap.read() if solver.webcam_available else (None, None)
+                    if frame is not None:
                         solver._update_display(frame, None)
 
                 # Check for exit
                 if cv2.waitKey(1) & 0xFF == ord('q'):
                     break
-        else: # If using generator or image, run once and show plot
-            puzzle_json, original_frame, processed_image = solver.capture_puzzle()
-            if puzzle_json:
-                print("\nPuzzle detected! Press 's' to solve or 'q' to exit")
-                if original_frame is not None:
-                    solver._update_display(original_frame, processed_image)
-                
-                while True:
-                    key = cv2.waitKey(1) & 0xFF
-                    if key == ord('s'):
-                        success, puzzle = solver.solve_puzzle(puzzle_json)
-                        if success:
-                            print("Puzzle solved successfully!")
-                            if solver.generated_solution:
-                                print("\nGenerated solution grid:")
-                                for row in solver.generated_solution:
-                                    print(row)
-                            solver._update_display(original_frame, processed_image)
-                            plt.show(block=True)
-                        else:
-                            print("Failed to solve the puzzle")
-                        break
-                    elif key == ord('q'):
-                        print("\nExiting...")
-                        return
-            else:
-                print("No puzzle detected in the image")
 
-    except KeyboardInterrupt:
-        print("\nExiting...")
+        except KeyboardInterrupt:
+            print("\nExiting...")
+        finally:
+            solver.release()
+            cv2.destroyAllWindows()
+
     except Exception as e:
         print(f"Error: {str(e)}")
         import traceback
         traceback.print_exc()
-    finally:
-        if 'solver' in locals():
-            solver.release()
-        cv2.destroyAllWindows()
+        sys.exit(1)
