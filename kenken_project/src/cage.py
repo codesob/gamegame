@@ -9,12 +9,10 @@ class Cage:
         self.value = value
         self.cells = set(cells)
 
-        valid_operations = {'+', '-', '*', '/', '='}
+        valid_operations = {'+', '-', '*', '/'}
         if operation not in valid_operations:
             raise ValueError(f"Invalid operation: {operation}")
 
-        if operation == '=' and len(cells) != 1:
-            raise ValueError("Operation '=' requires exactly 1 cell.")
         if operation in ('-', '/') and len(cells) != 2:
             raise ValueError(f"Operation '{operation}' requires exactly 2 cells.")
 
@@ -35,8 +33,6 @@ class Cage:
             if values[1] == 0:
                 return False
             return values[0] / values[1] == self.value or values[1] / values[0] == self.value
-        elif self.operation_str == '=':
-            return values[0] == self.value
         return False
 
     def __repr__(self) -> str:

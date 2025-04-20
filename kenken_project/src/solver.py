@@ -98,28 +98,17 @@ class Solver:
 
     def _check_cage_constraint(self, cage: Cage) -> bool:
         """Check if cage satisfies its constraint."""
-        cell_values = self.puzzle.get_cage_values(cage)
-        if 0 in cell_values:
-            # For partially filled cages, check if it's still possible to satisfy the constraint
-            filled_values = [v for v in cell_values if v != 0]
-            if cage.operation_str == '+':
-                # Sum of filled values must be less than target
-                return sum(filled_values) < cage.value
-            elif cage.operation_str == '*':
-                # Product of filled values must be a factor of target
-                product = 1
-                for v in filled_values:
-                    product *= v
-                return cage.value % product == 0
-            elif cage.operation_str in ('-', '/'):
-                # For binary operations, if both cells are filled, check constraint
-                if len(filled_values) == 2:
-                    return cage.check(filled_values)
-                return True  # Only one cell filled, still possible
-            elif cage.operation_str == '=':
-                # For equals, if cell is filled it must match target
-                return not filled_values or filled_values[0] == cage.value
+        if not cage:
             return True
+
+        cell_values = []
+        for r, c in cage.cells:
+            val = self.puzzle.get_cell_value(r, c)
+            if val == 0:  # Empty cell
+                return True  # Don't check incomplete cages
+            cell_values.append(val)
+
+        # Always evaluate cage as its operation (no special case for single cells)
         return cage.check(cell_values)
 
     def choose_next_variable_standard(self) -> Optional[Tuple[int, int]]:

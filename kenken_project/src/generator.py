@@ -53,19 +53,19 @@ def get_operation_str(op_code):
     op_map = {
         1: '+',
         2: '-',
-        3: '*', 
-        4: '/',
-        5: '='
+        3: '*',
+        4: '/'
     }
     return op_map.get(op_code, '+')  # Default to + if unknown
 
 def compute_target_and_operator(cage, grid):
     """Compute target value and operation for a cage."""
     values = [grid[r][c] for r, c in cage]
-    if len(cage) == 1:
-        return values[0], "="
     
-    random.shuffle(values)
+    if len(cage) == 1:
+        # For single cells, use multiplication by 1
+        return values[0], '*'
+    
     if len(cage) == 2:
         a, b = max(values), min(values)  # Ensure consistent order
         ops = []
@@ -81,15 +81,17 @@ def compute_target_and_operator(cage, grid):
             return a + b, '+'  # Fallback to addition
         op, target = random.choice(ops)
         return target, op
+        
+    # For 3+ cells, use only + or *
+    if random.random() < 0.5:
+        return sum(values), '+'
     else:
-        # For 3+ cells, use only + or *
-        if random.random() < 0.5:
+        product = 1
+        for v in values:
+            product *= v
+        if product > 100:  # If product is too large, fall back to addition
             return sum(values), '+'
-        else:
-            product = 1
-            for v in values:
-                product *= v
-            return product, '*'
+        return product, '*'
 
 def generate_kenken(n=5):
     """Generate a KenKen puzzle with string operations."""

@@ -40,51 +40,52 @@ def cell_notation_to_coords(cell_str: str) -> Optional[Tuple[int, int]]:
 
 
 def parse_text_puzzle(text_input: str) -> Tuple[int, List[Cage]]:
-    """
-    Parses a multi-line string representation of a KenKen puzzle.
-    Returns (size, list_of_cages). Raises ValueError on errors.
-    """
-    lines = [line.strip() for line in text_input.strip().splitlines() if line.strip()]
-    if not lines:
-        raise ValueError("Input text is empty.")
-
+    """Parse a text representation of a KenKen puzzle."""
+    lines = [line.strip() for line in text_input.splitlines() if line.strip()]
+    
+    # First line must be size
     try:
         size = int(lines[0])
-        if size <= 0: raise ValueError("Grid size must be positive.")
-    except ValueError:
-        raise ValueError(f"Invalid grid size: '{lines[0]}'. Expected integer.")
-
+        if size < 3:
+            raise ValueError("Puzzle size must be at least 3")
+    except ValueError as e:
+        raise ValueError(f"Invalid size line: {lines[0]}") from e
+    
     cages = []
-    for i, line in enumerate(lines[1:], start=2):
-        parts = line.split()
-        if len(parts) < 3:
-             raise ValueError(f"Invalid format line {i}: '{line}'.")
-
+    for i, line in enumerate(lines[1:], 1):
+        parts = line.strip().split()
+        if len(parts) < 2:
+            raise ValueError(f"Invalid line {i}: '{line}'.")
+        
         value_op_str = parts[0]
-        op_match = re.match(r"(\d+)([+\-*/x÷=])", value_op_str)
+        op_match = re.match(r"(\d+)([+\-*/])", value_op_str)
         if not op_match:
-             raise ValueError(f"Invalid target/op line {i}: '{value_op_str}'.")
+            raise ValueError(f"Invalid target/op line {i}: '{value_op_str}'.")
 
         value_str, op_symbol = op_match.groups()
-        try: value = int(value_str)
-        except ValueError: raise ValueError(f"Invalid value line {i}: '{value_str}'.")
+        try: 
+            value = int(value_str)
+        except ValueError: 
+            raise ValueError(f"Invalid value line {i}: '{value_str}'.")
 
-        if op_symbol == 'x': op_symbol = '*'
-        if op_symbol == '÷': op_symbol = '/'
-        if op_symbol not in ('+', '-', '*', '/', '='):
+        if op_symbol == 'x': 
+            op_symbol = '*'
+        if op_symbol == '÷': 
+            op_symbol = '/'
+        if op_symbol not in ('+', '-', '*', '/'):
             raise ValueError(f"Invalid op symbol line {i}: '{op_symbol}'.")
 
         cell_coords_list = []
         for cell_notation in parts[1:]:
-             coords = cell_notation_to_coords(cell_notation)
-             if coords is None:
-                 raise ValueError(f"Invalid cell notation line {i}: '{cell_notation}'.")
-             if not (0 <= coords[0] < size and 0 <= coords[1] < size):
-                  raise ValueError(f"Cell '{cell_notation}' ({coords}) line {i} out of bounds (size {size}).")
-             cell_coords_list.append(coords)
+            coords = cell_notation_to_coords(cell_notation)
+            if coords is None:
+                raise ValueError(f"Invalid cell notation line {i}: '{cell_notation}'.")
+            if not (0 <= coords[0] < size and 0 <= coords[1] < size):
+                raise ValueError(f"Cell '{cell_notation}' ({coords}) line {i} out of bounds (size {size}).")
+            cell_coords_list.append(coords)
 
         if not cell_coords_list:
-             raise ValueError(f"No cells defined line {i}: '{line}'.")
+            raise ValueError(f"No cells defined line {i}: '{line}'.")
 
         try:
             cage = Cage(operation=op_symbol, value=value, cells=cell_coords_list)
@@ -92,16 +93,17 @@ def parse_text_puzzle(text_input: str) -> Tuple[int, List[Cage]]:
         except ValueError as e:
             raise ValueError(f"Error creating cage line {i}: {e}")
 
-    # --- Add validation: Check if all cells 1..N*N are covered ---
+    # Validate all cells are covered
     all_grid_cells = set((r, c) for r in range(size) for c in range(size))
     all_cage_cells = set(cell for cage in cages for cell in cage.cells)
     if all_grid_cells != all_cage_cells:
-         missing = sorted(list(all_grid_cells - all_cage_cells))
-         extra = sorted(list(all_cage_cells - all_grid_cells))
-         error_msgs = []
-         if missing: error_msgs.append(f"Cells not covered by any cage: {missing}")
-         if extra: error_msgs.append(f"Cage cells outside grid: {extra}") # Should be caught earlier
-         raise ValueError("Invalid text puzzle definition: " + "; ".join(error_msgs))
-    # --- End validation ---
+        missing = sorted(list(all_grid_cells - all_cage_cells))
+        extra = sorted(list(all_cage_cells - all_grid_cells))
+        error_msgs = []
+        if missing: 
+            error_msgs.append(f"Cells not covered by any cage: {missing}")
+        if extra: 
+            error_msgs.append(f"Cells outside grid bounds: {sorted(list(extra))}")
+        raise ValueError("Invalid puzzle definition: " + "; ".join(error_msgs))
 
     return size, cages
