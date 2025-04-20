@@ -14,25 +14,25 @@ class Puzzle:
         self._cell_to_cage_map: Dict[Tuple[int, int], Cage] = {}
         for cage in cages:
             for cell in cage.cells:
-                r, c = cell
+                r, c = tuple(cell)  # Convert to tuple in case it's a list
                 if not (0 <= r < size and 0 <= c < size):
-                     raise ValueError(f"Cell {cell} in cage {cage} is outside the grid boundaries (0 to {size-1}).")
-                if cell in self._cell_to_cage_map:
-                     raise ValueError(f"Cell {cell} belongs to multiple cages (Cage {cage} and Cage {self._cell_to_cage_map[cell]}).")
-                self._cell_to_cage_map[cell] = cage
+                    raise ValueError(f"Cell {cell} in cage {cage} is outside the grid boundaries (0 to {size-1}).")
+                if (r, c) in self._cell_to_cage_map:
+                    raise ValueError(f"Cell {cell} belongs to multiple cages (Cage {cage} and Cage {self._cell_to_cage_map[(r, c)]}).")
+                self._cell_to_cage_map[(r, c)] = cage
 
         # Check if all cells are covered by cages - Essential for valid KenKen
         all_grid_cells = set((r, c) for r in range(size) for c in range(size))
-        all_cage_cells = set(cell for cage in cages for cell in cage.cells)
+        all_cage_cells = set(tuple(cell) for cage in cages for cell in cage.cells)
 
         if all_grid_cells != all_cage_cells:
             missing = all_grid_cells - all_cage_cells
-            extra = all_cage_cells - all_grid_cells # Should be covered by boundary check, but good safety
+            extra = all_cage_cells - all_grid_cells
             error_msgs = []
             if missing:
-                 error_msgs.append(f"Cells not covered by any cage: {sorted(list(missing))}")
+                error_msgs.append(f"Cells not covered by any cage: {sorted(list(missing))}")
             if extra:
-                 error_msgs.append(f"Cage cells outside grid bounds: {sorted(list(extra))}") # Should be caught earlier
+                error_msgs.append(f"Cage cells outside grid bounds: {sorted(list(extra))}")
             if error_msgs:
                 raise ValueError("Invalid puzzle definition: " + "; ".join(error_msgs))
 

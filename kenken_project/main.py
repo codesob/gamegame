@@ -191,7 +191,7 @@ def main_window():
         """Open a new window for manual play."""
         play_window = tk.Toplevel(root)
         play_window.title("Play KenKen Puzzle")
-        center_window(play_window, 600, 600)
+        center_window(play_window, 800, 800)  # Increased size to accommodate the canvas
         play_window.configure(bg="lightblue")
 
         tk.Label(play_window, text="Play KenKen Puzzle", font=("Arial", 20, "bold"), bg="lightblue").pack(pady=20)
@@ -214,51 +214,94 @@ def main_window():
                 puzzle, solution = load_puzzle_from_file(puzzle_path)
                 size = puzzle.size
 
-                # Create a grid for manual input and display predefined values with operations
-                entries = []
-                grid_frame = tk.Frame(play_window, bg="lightblue")
-                grid_frame.pack(pady=20)
+                # Create a frame to hold the canvas
+                canvas_frame = tk.Frame(play_window, bg="lightblue")
+                canvas_frame.pack(pady=20)
 
+                # Calculate cell size and canvas dimensions
+                cell_size = 60
+                canvas_size = cell_size * size
+                padding = 20  # Extra space for cage operations
+                total_size = canvas_size + 2 * padding
+
+                # Create canvas
+                canvas = tk.Canvas(canvas_frame, width=total_size, height=total_size, bg="white")
+                canvas.pack()
+
+                entries = []
+                entry_widgets = {}  # Store entry widgets with their coordinates
+
+                # Draw the grid and create entry widgets
                 for r in range(size):
                     row_entries = []
                     for c in range(size):
-                        value = puzzle.grid[r][c] if hasattr(puzzle, 'grid') else 0
-                        cage_info = next((cage for cage in puzzle.cages if (r, c) in cage.cells), None)
-                        if value != 0:  # If the cell has a predefined value
-                            label = tk.Label(grid_frame, text=str(value), font=("Arial", 20), width=4, height=2, bg="lightgray", relief="solid")
-                            label.grid(row=r, column=c, padx=5, pady=5)
-                            row_entries.append(None)  # No entry for predefined cells
-                        else:
-                            entry = tk.Entry(grid_frame, width=4, font=("Arial", 20), justify="center")
-                            entry.grid(row=r, column=c, padx=5, pady=5)
-                            row_entries.append(entry)
+                        x1 = c * cell_size + padding
+                        y1 = r * cell_size + padding
+                        x2 = x1 + cell_size
+                        y2 = y1 + cell_size
 
-                            # Restrict input to numeric values within the puzzle size
-                            def validate_input(P):
-                                if P == "":
-                                    return True
-                                if P.isdigit():
-                                    num = int(P)
-                                    return 1 <= num <= size
-                                return False
+                        # Draw cell outline
+                        canvas.create_rectangle(x1, y1, x2, y2, outline="gray")
 
-                            reg = play_window.register(validate_input)
-                            entry.config(validate="key", validatecommand=(reg, "%P"))
+                        # Create entry widget
+                        entry = tk.Entry(canvas, width=2, font=("Arial", 16), justify="center")
+                        entry_window = canvas.create_window(x1 + cell_size/2, y1 + cell_size/2, window=entry)
+                        row_entries.append(entry)
+                        entry_widgets[(r, c)] = entry
 
-                        # Display cage operation and value in the top-left corner of the first cell of the cage
-                        if cage_info and list(cage_info.cells)[0] == (r, c):
-                            operation_text = f"{cage_info.operation_str}{cage_info.value}"
-                            op_label = tk.Label(grid_frame, text=operation_text, font=("Arial", 12), bg="lightblue")
-                            op_label.grid(row=r, column=c, sticky="nw", padx=2, pady=2)
+                        # Restrict input to valid numbers
+                        def validate_input(P):
+                            if P == "":
+                                return True
+                            if P.isdigit():
+                                num = int(P)
+                                return 1 <= num <= size
+                            return False
+
+                        reg = play_window.register(validate_input)
+                        entry.config(validate="key", validatecommand=(reg, "%P"))
 
                     entries.append(row_entries)
+
+                # Draw cage boundaries and operations
+                for cage in puzzle.cages:
+                    cells = cage.cells
+                    operation_text = f"{cage.operation_str}{cage.value}"
+
+                    # Draw the cage boundaries
+                    for i, (r, c) in enumerate(cells):
+                        x1 = c * cell_size + padding
+                        y1 = r * cell_size + padding
+                        x2 = x1 + cell_size
+                        y2 = y1 + cell_size
+
+                        # Check adjacent cells to determine which borders to draw bold
+                        for adj_r, adj_c in [(r-1, c), (r+1, c), (r, c-1), (r, c+1)]:
+                            if (adj_r, adj_c) not in cells:
+                                if adj_r == r - 1:  # Top border
+                                    canvas.create_line(x1, y1, x2, y1, width=2, fill="black")
+                                elif adj_r == r + 1:  # Bottom border
+                                    canvas.create_line(x1, y2, x2, y2, width=2, fill="black")
+                                elif adj_c == c - 1:  # Left border
+                                    canvas.create_line(x1, y1, x1, y2, width=2, fill="black")
+                                elif adj_c == c + 1:  # Right border
+                                    canvas.create_line(x2, y1, x2, y2, width=2, fill="black")
+
+                    # Add operation text in the top-left corner of the first cell
+                    first_cell = cells[0]
+                    x = first_cell[1] * cell_size + padding + 2
+                    y = first_cell[0] * cell_size + padding + 2
+                    canvas.create_text(x, y, text=operation_text, anchor="nw", font=("Arial", 10, "bold"))
 
                 def validate_solution():
                     user_solution = []
                     for r in range(size):
                         row = []
                         for c in range(size):
-                            value = entries[r][c].get() if entries[r][c] else puzzle.grid[r][c]
+                            value = entries[r][c].get()
+                            if not value:
+                                messagebox.showerror("Error", f"Please fill in all cells.")
+                                return
                             if not value.isdigit():
                                 messagebox.showerror("Error", f"Invalid input at cell ({r+1}, {c+1}). Please enter numbers only.")
                                 return
@@ -266,16 +309,24 @@ def main_window():
                         user_solution.append(row)
 
                     if user_solution == solution:
-                        messagebox.showinfo("Success", "Congratulations! Your solution is correct.")
+                        messagebox.showinfo("Success", "Congratulations! Your solution is correct!")
+                        # Highlight the correct solution in green
+                        for r in range(size):
+                            for c in range(size):
+                                entries[r][c].config(bg="lightgreen")
                     else:
                         messagebox.showerror("Error", "Incorrect solution. Please try again.")
 
-                tk.Button(play_window, text="Validate Solution", font=("Arial", 16), command=validate_solution, bg="green", fg="white").pack(pady=20)
+                validate_button = tk.Button(play_window, text="Validate Solution", 
+                                         font=("Arial", 16), command=validate_solution,
+                                         bg="green", fg="white")
+                validate_button.pack(pady=20)
 
             except Exception as e:
                 messagebox.showerror("Error", str(e))
 
-        tk.Button(play_window, text="Load Puzzle", font=("Arial", 16), command=load_and_play, bg="orange", fg="white").pack(pady=20)
+        tk.Button(play_window, text="Load Puzzle", font=("Arial", 16),
+                 command=load_and_play, bg="orange", fg="white").pack(pady=20)
 
     root = tk.Tk()
     root.title("KenKen Puzzle")

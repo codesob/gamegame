@@ -7,7 +7,8 @@ class Cage:
     def __init__(self, operation, value, cells):
         self.operation_str = operation
         self.value = value
-        self.cells = set(cells)
+        # Convert cells to a list if it's not already
+        self.cells = list(cells) if not isinstance(cells, list) else cells
 
         valid_operations = {'+', '-', '*', '/'}
         if operation not in valid_operations:
@@ -28,11 +29,13 @@ class Cage:
                 result *= v
             return result == self.value
         elif self.operation_str == '-':
+            if len(values) != 2:
+                return False
             return abs(values[0] - values[1]) == self.value
         elif self.operation_str == '/':
-            if values[1] == 0:
+            if len(values) != 2 or 0 in values:
                 return False
-            return values[0] / values[1] == self.value or values[1] / values[0] == self.value
+            return max(values) / min(values) == self.value
         return False
 
     def __repr__(self) -> str:

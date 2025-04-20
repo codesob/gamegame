@@ -1,5 +1,6 @@
 from vision_solver import VisionSolver
 from generator import generate_kenken
+import matplotlib.pyplot as plt
 
 # Generate a new puzzle
 size = 6

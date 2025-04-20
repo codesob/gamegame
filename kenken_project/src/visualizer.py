@@ -42,6 +42,8 @@ class KenKenRenderer:
         self.cell_size = min(width, height) // size
         self.font = pygame.font.Font(None, self.cell_size // 2)
         self.small_font = pygame.font.Font(None, self.cell_size // 3)
+        self.number_font = pygame.font.Font(None, self.cell_size // 2)  # Same size as main font
+        self.clock = pygame.time.Clock()  # Initialize clock for timing
 
     def draw_buttons(self):
         """Remove buttons from the visualization."""
@@ -161,14 +163,18 @@ class KenKenRenderer:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
-                sys.exit()
-            elif event.type == pygame.KEYDOWN:
+                return False
+            if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     pygame.quit()
-                    sys.exit()
-            elif event.type == pygame.MOUSEBUTTONDOWN:
-                if hasattr(self, 'solve_button') and self.solve_button.collidepoint(event.pos):
-                    solve_callback()  # Trigger solve callback
+                    return False
+            if event.type == pygame.WINDOWFOCUSLOST:
+                # Don't quit when window loses focus
+                continue
+            if event.type == pygame.WINDOWMINIMIZED:
+                # Don't quit when window is minimized
+                continue
+        return True
 
     def wait_for_solve_button(self, solve_callback):
         """Wait for the user to click the solve button."""
@@ -180,29 +186,60 @@ class KenKenRenderer:
                     pygame.quit()
                     sys.exit()
 
-    def update_cell_display(self, row: int, col: int, value: int, delay_ms: int = 0):
-        """Update the display of a single cell with a new value."""
-        x = col * self.cell_size
-        y = row * self.cell_size
+    def update_cell_display(self, row: int, col: int, num: int, delay_ms: int = 0):
+        """
+        Callback function for the solver to update the visualizer efficiently.
+        Redraws only the affected cell and its immediate surroundings.
+        """
+        # 1. Handle Pygame events (essential to keep window responsive)
+        if not self.handle_events(lambda: None):
+            print("Visualization quit by user.")
+            raise InterruptedError("Visualization closed by user.")
 
-        # Clear the cell
-        pygame.draw.rect(self.screen, self.WHITE, (x, y, self.cell_size, self.cell_size))
+        # 2. Define the rectangle for the cell being updated
+        rect = self._get_cell_rect(row, col)
 
-        # Draw the grid lines
-        pygame.draw.rect(self.screen, self.BLACK, (x, y, self.cell_size, self.cell_size), 1)
+        # 3. Use semi-transparent highlight to keep numbers visible
+        if num != 0:
+            # Create a semi-transparent surface for highlighting
+            highlight = pygame.Surface(rect.size, pygame.SRCALPHA)
+            highlight.fill((255, 255, 200, 128))  # Light yellow with alpha
+            self.screen.blit(highlight, rect)
+        else:
+            pygame.draw.rect(self.screen, BACKGROUND_COLOR, rect)
 
-        # Draw the value if it's not zero
-        if value != 0:
-            text_surface = self.font.render(str(value), True, self.BLACK)
-            text_rect = text_surface.get_rect(center=(x + self.cell_size // 2, y + self.cell_size // 2))
-            self.screen.blit(text_surface, text_rect)
+        # 4. Draw the number with improved visibility
+        if num != 0:
+            try:
+                # Draw the number with outline for better visibility
+                outline_color = WHITE
+                main_color = NUMBER_COLOR
+                num_str = str(num)
+                
+                # Draw outline by offsetting the text slightly in each direction
+                offsets = [(1,1), (-1,-1), (1,-1), (-1,1)]
+                for dx, dy in offsets:
+                    num_surface = self.number_font.render(num_str, True, outline_color)
+                    num_rect = num_surface.get_rect(center=(rect.centerx + dx, rect.centery + dy))
+                    self.screen.blit(num_surface, num_rect)
+                
+                # Draw the main number on top
+                num_surface = self.number_font.render(num_str, True, main_color)
+                num_rect = num_surface.get_rect(center=rect.center)
+                self.screen.blit(num_surface, num_rect)
+            except pygame.error as e:
+                print(f"Error rendering number {num}: {e}")
 
-        # Update the display
-        pygame.display.update(pygame.Rect(x, y, self.cell_size, self.cell_size))
+        # 5. Always redraw cage info to ensure it's visible
+        self._redraw_cage_info_if_needed(row, col)
+        self._redraw_thick_lines_around_cell(row, col)
 
-        # Optional delay for visualization
+        # 6. Update only the changed rectangle
+        pygame.display.update(rect)
+
+        # 7. Minimal delay to prevent lag while still showing process
         if delay_ms > 0:
-            pygame.time.wait(delay_ms)
+            pygame.time.wait(min(delay_ms, 50))  # Cap delay at 50ms to prevent lag
 
     def update_cell_with_operation(self, row: int, col: int, value: int, target: int, operation: str, delay_ms: int = 0):
         """Update the display of a single cell with a new value and operation."""
@@ -233,11 +270,19 @@ class KenKenRenderer:
         self.screen.blit(text_surface, text_rect)
         pygame.display.flip()
 
-        while True:
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    pygame.quit()
-                    sys.exit()
+        running = True
+        while running:
+            running = self.handle_events(lambda: None)
+            self.clock.tick(30)  # Keep CPU usage reasonable while waiting
+            pygame.display.flip()  # Keep window responsive
+
+    def quit(self):
+        """Cleans up Pygame."""
+        try:
+            pygame.display.quit()
+            pygame.quit()
+        except pygame.error:
+            pass  # Ignore errors during cleanup
 
     def show_message(self, message: str, color: tuple = (0, 0, 0)):
         """Display a message at the bottom of the screen."""
@@ -254,11 +299,63 @@ class KenKenRenderer:
         # Update the display
         pygame.display.update(message_rect)
 
+    def _get_cell_rect(self, row: int, col: int) -> pygame.Rect:
+        """Get the pygame.Rect for a given cell's drawing area."""
+        x = col * self.cell_size
+        y = row * self.cell_size
+        return pygame.Rect(x, y, self.cell_size, self.cell_size)
+
+    def _redraw_cage_info_if_needed(self, row, col):
+        """Redraws cage info if it was potentially overwritten in the updated cell."""
+        cage = self.puzzle.get_cage(row, col)
+        # Check if this is the top-left cell of the cage
+        cells = list(cage.cells) if cage else []
+        top_left = min(cells) if cells else None
+        if top_left and top_left == (row, col):
+            # Redraw the cage info
+            x = col * self.cell_size
+            y = row * self.cell_size
+            text = f"{cage.value}{cage.operation_str}"
+            text_surface = self.small_font.render(text, True, self.BLUE)
+            text_rect = text_surface.get_rect()
+            text_rect.topleft = (x + 5, y + 5)
+            self.screen.blit(text_surface, text_rect)
+
+    def _redraw_thick_lines_around_cell(self, row, col):
+        """Helper to redraw thick cage lines around a specific cell."""
+        cage = self.puzzle.get_cage(row, col)
+        if not cage:
+            return
+
+        x = col * self.cell_size
+        y = row * self.cell_size
+
+        # Check all neighboring cells
+        neighbors = [(row - 1, col), (row + 1, col), (row, col - 1), (row, col + 1)]
+        for nr, nc in neighbors:
+            if 0 <= nr < self.size and 0 <= nc < self.size:
+                neighbor_cage = self.puzzle.get_cage(nr, nc)
+                if cage != neighbor_cage:
+                    if nr == row - 1:  # Top
+                        pygame.draw.line(self.screen, self.BLACK,
+                                       (x, y), (x + self.cell_size, y), 3)
+                    elif nr == row + 1:  # Bottom
+                        pygame.draw.line(self.screen, self.BLACK,
+                                       (x, y + self.cell_size),
+                                       (x + self.cell_size, y + self.cell_size), 3)
+                    elif nc == col - 1:  # Left
+                        pygame.draw.line(self.screen, self.BLACK,
+                                       (x, y), (x, y + self.cell_size), 3)
+                    elif nc == col + 1:  # Right
+                        pygame.draw.line(self.screen, self.BLACK,
+                                       (x + self.cell_size, y),
+                                       (x + self.cell_size, y + self.cell_size), 3)
+
 
 class KenKenVisualizer:
     """Handles Pygame visualization of the KenKen puzzle and solving process."""
 
-    def __init__(self, puzzle: Puzzle, cell_size: int = 60, margin: int = 20):
+    def __init__(self, puzzle: Puzzle, cell_size: int = 80, margin: int = 30):  # Increased default cell size and margin
         if cell_size < 20 or margin < 5:
             print("Warning: Cell size or margin might be too small for clear visualization.")
         self.puzzle = puzzle
@@ -274,22 +371,16 @@ class KenKenVisualizer:
         self.screen = pygame.display.set_mode((self.width, self.height + self.bottom_bar_height))
         pygame.display.set_caption(f"KenKen Solver ({self.size}x{self.size})")
 
-        # Attempt to load fonts, fall back to default if specific ones fail
+        # Larger fonts for better readability
         try:
-            self.number_font = pygame.font.SysFont('Arial', int(cell_size * 0.6))
+            self.number_font = pygame.font.SysFont('Arial', int(cell_size * 0.7))  # Increased font size
+            self.cage_font = pygame.font.SysFont('Arial', int(cell_size * 0.3))    # Increased cage info size
+            self.message_font = pygame.font.SysFont('Arial', 36)                    # Larger message font
         except:
-            print("Arial font not found, using default pygame font for numbers.")
-            self.number_font = pygame.font.Font(None, int(cell_size * 0.6))
-        try:
-            self.cage_font = pygame.font.SysFont('Arial', int(cell_size * 0.25))
-        except:
-            print("Arial font not found, using default pygame font for cages.")
-            self.cage_font = pygame.font.Font(None, int(cell_size * 0.25))
-        try:
-            self.message_font = pygame.font.SysFont('Arial', 30)
-        except:
-            print("Arial font not found, using default pygame font for messages.")
-            self.message_font = pygame.font.Font(None, 30)
+            print("Arial font not found, using default pygame font.")
+            self.number_font = pygame.font.Font(None, int(cell_size * 0.7))
+            self.cage_font = pygame.font.Font(None, int(cell_size * 0.3))
+            self.message_font = pygame.font.Font(None, 36)
 
         self.clock = pygame.time.Clock()
 
@@ -340,8 +431,8 @@ class KenKenVisualizer:
             # Find cell with minimum row, then minimum column within that row
             top_left_cell = min(cage.cells, key=lambda x: (x[0], x[1]))
             rect = self._get_cell_rect(top_left_cell[0], top_left_cell[1])
-            # Position slightly offset inside the top-left corner
-            positions[cage] = (rect.x + 3, rect.y + 1)
+            # Position in the top-left corner with better spacing
+            positions[cage] = (rect.x + 5, rect.y + 5)
         return positions
 
     def draw_grid(self):
@@ -368,13 +459,25 @@ class KenKenVisualizer:
     def draw_cages_info(self):
         """Draws the operation and value for each cage."""
         for cage, pos in self._cage_info_pos.items():
-            # Construct the text string (e.g., "12+", "3-", "4")
+            # Create bold text effect for better visibility
             text = f"{cage.value}"
-            if cage.operation_str != "=":  # Don't show '=' for single cells
+            if cage.operation_str != "=":
                 text += cage.operation_str
-
-            surface = self.cage_font.render(text, True, CAGE_INFO_COLOR)
-            self.screen.blit(surface, pos)
+            
+            # Draw text with outline for better visibility
+            outline_color = WHITE
+            text_color = BLUE
+            outline_positions = [(0,1), (1,0), (0,-1), (-1,0)]
+            
+            # Draw white outline first
+            outline_surface = self.cage_font.render(text, True, outline_color)
+            for dx, dy in outline_positions:
+                outline_pos = (pos[0] + dx, pos[1] + dy)
+                self.screen.blit(outline_surface, outline_pos)
+            
+            # Draw main text
+            text_surface = self.cage_font.render(text, True, text_color)
+            self.screen.blit(text_surface, pos)
 
     def draw_numbers(self, highlight_cell: Optional[TypingTuple[int, int]] = None, clear_only=False):
         """Draws the numbers currently in the puzzle grid."""
@@ -383,23 +486,35 @@ class KenKenVisualizer:
                 rect = self._get_cell_rect(r, c)
                 value = self.puzzle.get_cell_value(r, c)
 
-                # Highlight the cell currently being processed by the solver
-                if highlight_cell and (r, c) == highlight_cell:
-                    pygame.draw.rect(self.screen, HIGHLIGHT_COLOR, rect)
-                # Fill background for empty cells or when clearing before redraw
-                elif value == 0 or clear_only:
-                    pygame.draw.rect(self.screen, BACKGROUND_COLOR, rect)
+                # Add subtle background for better contrast
+                if not clear_only:
+                    cell_bg_color = (245, 245, 245) if (r + c) % 2 == 0 else WHITE
+                    pygame.draw.rect(self.screen, cell_bg_color, rect)
 
-                # Draw the number if the cell is not empty
+                # Draw highlight if this is the current cell
+                if highlight_cell and (r, c) == highlight_cell:
+                    highlight = pygame.Surface(rect.size, pygame.SRCALPHA)
+                    highlight.fill((255, 255, 150, 180))  # More opaque yellow highlight
+                    self.screen.blit(highlight, rect)
+
+                # Draw number with shadow effect if not empty
                 if value != 0 and not clear_only:
                     try:
-                        num_surface = self.number_font.render(str(value), True, NUMBER_COLOR)
+                        num_str = str(value)
+                        # Draw shadow/outline first
+                        shadow_offsets = [(1,1), (-1,-1), (1,-1), (-1,1)]
+                        shadow_color = (50, 50, 50)  # Darker shadow
+                        for dx, dy in shadow_offsets:
+                            shadow_surface = self.number_font.render(num_str, True, shadow_color)
+                            shadow_rect = shadow_surface.get_rect(center=(rect.centerx + dx, rect.centery + dy))
+                            self.screen.blit(shadow_surface, shadow_rect)
+                        
+                        # Draw main number
+                        num_surface = self.number_font.render(num_str, True, NUMBER_COLOR)
                         num_rect = num_surface.get_rect(center=rect.center)
                         self.screen.blit(num_surface, num_rect)
                     except pygame.error as e:
                         print(f"Error rendering number {value}: {e}")
-                        # Optionally draw a placeholder if rendering fails
-                        pygame.draw.rect(self.screen, RED, rect, 2)  # Draw red box as error indicator
 
     def draw_all(self, message: str = "", highlight_cell: Optional[TypingTuple[int, int]] = None):
         """Draws the entire puzzle state from scratch."""
@@ -442,50 +557,55 @@ class KenKenVisualizer:
         Callback function for the solver to update the visualizer efficiently.
         Redraws only the affected cell and its immediate surroundings.
         """
-        # 1. Handle Pygame events (essential to keep window responsive and allow quitting)
+        # 1. Handle Pygame events (essential to keep window responsive)
         if not self.handle_events(lambda: None):
             print("Visualization quit by user.")
-            # Raise a specific exception or use a flag to signal the solver to stop
             raise InterruptedError("Visualization closed by user.")
 
         # 2. Define the rectangle for the cell being updated
         rect = self._get_cell_rect(row, col)
 
-        # 3. Draw the cell background (either normal or highlighted)
-        # This covers the previous number or highlight
-        if num != 0:  # If putting a number, highlight it temporarily
-            pygame.draw.rect(self.screen, HIGHLIGHT_COLOR, rect)
-        else:  # If clearing (num=0), just draw normal background
+        # 3. Use semi-transparent highlight to keep numbers visible
+        if num != 0:
+            # Create a semi-transparent surface for highlighting
+            highlight = pygame.Surface(rect.size, pygame.SRCALPHA)
+            highlight.fill((255, 255, 200, 128))  # Light yellow with alpha
+            self.screen.blit(highlight, rect)
+        else:
             pygame.draw.rect(self.screen, BACKGROUND_COLOR, rect)
 
-        # 4. Draw the number (if not 0)
+        # 4. Draw the number with improved visibility
         if num != 0:
             try:
-                num_surface = self.number_font.render(str(num), True, NUMBER_COLOR)
+                # Draw the number with outline for better visibility
+                outline_color = WHITE
+                main_color = NUMBER_COLOR
+                num_str = str(num)
+                
+                # Draw outline by offsetting the text slightly in each direction
+                offsets = [(1,1), (-1,-1), (1,-1), (-1,1)]
+                for dx, dy in offsets:
+                    num_surface = self.number_font.render(num_str, True, outline_color)
+                    num_rect = num_surface.get_rect(center=(rect.centerx + dx, rect.centery + dy))
+                    self.screen.blit(num_surface, num_rect)
+                
+                # Draw the main number on top
+                num_surface = self.number_font.render(num_str, True, main_color)
                 num_rect = num_surface.get_rect(center=rect.center)
                 self.screen.blit(num_surface, num_rect)
             except pygame.error as e:
-                print(f"Error rendering number {num} in update_cell_display: {e}")
+                print(f"Error rendering number {num}: {e}")
 
-        # 5. Redraw grid lines around this cell (they might have been painted over)
-        # Thin lines:
-        pygame.draw.line(self.screen, LINE_COLOR, rect.topleft, rect.topright, 1)
-        pygame.draw.line(self.screen, LINE_COLOR, rect.topleft, rect.bottomleft, 1)
-        pygame.draw.line(self.screen, LINE_COLOR, rect.bottomleft, rect.bottomright, 1)
-        pygame.draw.line(self.screen, LINE_COLOR, rect.topright, rect.bottomright, 1)
-        # Thick cage lines + outer border:
+        # 5. Always redraw cage info to ensure it's visible
+        self._redraw_cage_info_if_needed(row, col)
         self._redraw_thick_lines_around_cell(row, col)
 
-        # 6. Redraw cage info if it's the top-left cell for its cage (might be overdrawn)
-        self._redraw_cage_info_if_needed(row, col)
-
-        # 7. Update only the changed rectangle on the screen
+        # 6. Update only the changed rectangle
         pygame.display.update(rect)
 
-        # 8. Optional delay to visualize steps
+        # 7. Minimal delay to prevent lag while still showing process
         if delay_ms > 0:
-            # Use pygame.time.wait for simplicity, ensures delay happens
-            pygame.time.wait(delay_ms)
+            pygame.time.wait(min(delay_ms, 50))  # Cap delay at 50ms to prevent lag
 
     def _redraw_thick_lines_around_cell(self, r, c):
         """Helper to redraw thick cage lines and outer border around a specific cell."""
@@ -540,7 +660,7 @@ class KenKenVisualizer:
         """Redraws cage info if it was potentially overwritten in the updated cell."""
         cage = self.puzzle.get_cage(row, col)
         # Check if this cell is the one designated for displaying this cage's info
-        if cage and self._cage_info_pos.get(cage) == (self._get_cell_rect(row, col).x + 3, self._get_cell_rect(row, col).y + 1):
+        if cage and self._cage_info_pos.get(cage) == (self._get_cell_rect(row, col).x + 5, self._get_cell_rect(row, col).y + 5):
             # Simplest is to redraw that specific cage's info
             text = f"{cage.value}"
             if cage.operation_str != "=":
@@ -559,6 +679,12 @@ class KenKenVisualizer:
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     return False
+            if event.type == pygame.WINDOWFOCUSLOST:
+                # Don't quit when window loses focus
+                continue
+            if event.type == pygame.WINDOWMINIMIZED:
+                # Don't quit when window is minimized
+                continue
         return True
 
     def wait_for_close(self, message="Solver finished. Close the window to exit."):
@@ -566,14 +692,19 @@ class KenKenVisualizer:
         self.show_message(message)
         pygame.display.flip()  # Ensure message is shown
 
-        while self.handle_events(lambda: None):
+        running = True
+        while running:
+            running = self.handle_events(lambda: None)
             self.clock.tick(30)  # Keep CPU usage reasonable while waiting
-        self.quit()
+            pygame.display.flip()  # Keep window responsive
 
     def quit(self):
         """Cleans up Pygame."""
-        print("Quitting Pygame...")
-        pygame.quit()
+        try:
+            pygame.display.quit()
+            pygame.quit()
+        except pygame.error:
+            pass  # Ignore errors during cleanup
 
     def start_visualization(self, puzzle, delay_ms=300):
         """Initialize visualization and start solving."""
@@ -636,3 +767,4 @@ class ProcessVisualizer:
     def finish(self, success, solving_method):
         """Finalize the visualization with the solving result."""
         self.renderer.finish_visualization(success, solving_method)
+repr("")
