@@ -9,6 +9,9 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import os
 from src.generator import generate_kenken, save_puzzle
+import cv2
+import matplotlib.pyplot as plt
+from src.vision_solver import VisionSolver
 
 def load_puzzle_from_file(filepath):
     """Load puzzle and solution from JSON file."""
@@ -291,5 +294,52 @@ def main_window():
 
     root.mainloop()
 
+def main():
+    # Create a vision solver instance
+    solver = VisionSolver()
+    
+    while True:
+        # First, attempt to detect the puzzle
+        puzzle_json, frame, processed = solver.capture_puzzle()
+        
+        if puzzle_json:
+            print("\nPuzzle detected! Press 's' to solve, 'r' to retry detection, or 'q' to quit")
+            if frame is not None:
+                solver._update_display(frame, processed)
+            
+            while True:
+                key = cv2.waitKey(1) & 0xFF
+                if key == ord('s'):
+                    # Attempt to solve the detected puzzle
+                    success, puzzle = solver.solve_puzzle(puzzle_json)
+                    if success:
+                        print("Puzzle solved successfully!")
+                        solver._update_display(frame, processed)
+                        plt.show(block=True)  # Keep the solution window open
+                    else:
+                        print("Failed to solve the puzzle")
+                    break
+                elif key == ord('r'):
+                    print("Retrying puzzle detection...")
+                    break
+                elif key == ord('q'):
+                    print("\nExiting...")
+                    solver.release()
+                    cv2.destroyAllWindows()
+                    return
+        else:
+            print("No puzzle detected. Adjust the camera position and try again.")
+            # Show the raw frame if available
+            ret, frame = solver.cap.read() if solver.webcam_available else (None, None)
+            if frame is not None:
+                solver._update_display(frame, None)
+        
+        # Check for exit
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+    
+    solver.release()
+    cv2.destroyAllWindows()
+
 if __name__ == "__main__":
-    main_window()
+    main()
