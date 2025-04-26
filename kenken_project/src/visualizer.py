@@ -734,6 +734,56 @@ class KenKenVisualizer:
         self.draw_all(message)
         self.wait_for_close()
 
+    def draw(self, ax, title=None):
+        """Draw the puzzle state on a matplotlib axis."""
+        # Clear the axis
+        ax.clear()
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+        # Draw grid lines
+        for i in range(self.size + 1):
+            ax.axhline(y=i, color='gray', linewidth=1)
+            ax.axvline(x=i, color='gray', linewidth=1)
+
+        # Draw thick cage boundaries
+        for cage in self.puzzle.cages:
+            # Draw thicker lines between cells of different cages
+            for r, c in cage.cells:
+                if (r + 1, c) not in cage.cells and r + 1 < self.size:
+                    ax.plot([c, c + 1], [self.size - r - 1, self.size - r - 1], 'k-', linewidth=2)
+                if (r, c + 1) not in cage.cells and c + 1 < self.size:
+                    ax.plot([c + 1, c + 1], [self.size - r, self.size - r - 1], 'k-', linewidth=2)
+
+        # Draw numbers and cage info
+        for r in range(self.size):
+            for c in range(self.size):
+                # Draw cell value if it exists
+                value = self.puzzle.get_cell_value(r, c)
+                if value != 0:
+                    ax.text(c + 0.5, self.size - r - 0.5, str(value), 
+                           ha='center', va='center', fontsize=12)
+
+                # Draw cage info in top-left cell of each cage
+                cage = self.puzzle.get_cage(r, c)
+                if cage:
+                    # Only draw cage info in the top-left cell of the cage
+                    top_left = min(cage.cells)
+                    if (r, c) == top_left:
+                        text = f"{cage.value}"
+                        if cage.operation_str != "=":
+                            text += cage.operation_str
+                        ax.text(c + 0.1, self.size - r - 0.2, text,
+                               ha='left', va='top', fontsize=8, color='blue')
+
+        # Set title if provided
+        if title:
+            ax.set_title(title)
+
+        # Set axis limits
+        ax.set_xlim(0, self.size)
+        ax.set_ylim(0, self.size)
+
 
 class ProcessVisualizer:
     """Handles the visualization of the solving process."""

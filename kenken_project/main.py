@@ -8,7 +8,10 @@ from src.visualizer import KenKenRenderer, ProcessVisualizer
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import os
+from pathlib import Path
 from src.generator import generate_kenken, save_puzzle
+
+PUZZLES_DIR = Path(__file__).parent / "puzzles"
 
 def load_puzzle_from_file(filepath):
     """Load puzzle and solution from JSON file."""
@@ -131,7 +134,7 @@ def main_window():
         tk.Label(size_window, text=f"{size}x{size} Puzzle", font=("Arial", 20, "bold"), bg="lightgray").pack(pady=20)
 
         # Dropdown to select a puzzle from the puzzles folder
-        puzzle_files = [f for f in os.listdir("puzzles") if f.startswith(f"kenken_{size}x{size}") and f.endswith(".json")]
+        puzzle_files = [f for f in os.listdir(str(PUZZLES_DIR)) if f.startswith(f"kenken_{size}x{size}") and f.endswith(".json")]
         selected_puzzle = tk.StringVar(size_window)
         selected_puzzle.set("Select a puzzle")
 
@@ -152,7 +155,7 @@ def main_window():
                 messagebox.showerror("Error", "Please select both a puzzle and an algorithm.")
                 return
 
-            puzzle_path = os.path.join("puzzles", puzzle_file)
+            puzzle_path = os.path.join(str(PUZZLES_DIR), puzzle_file)
             try:
                 puzzle, _ = load_puzzle_from_file(puzzle_path)
                 process_viz = ProcessVisualizer(puzzle)  # Ensure process_viz is initialized here
@@ -180,7 +183,7 @@ def main_window():
                 if size < 3 or size > 9:
                     raise ValueError
                 puzzle, solution = generate_kenken(size)
-                save_puzzle(puzzle, solution)
+                save_puzzle(puzzle, solution, base_dir=str(PUZZLES_DIR))
                 messagebox.showinfo("Success", f"Generated {size}x{size} puzzle and saved to puzzles folder.")
             except ValueError:
                 messagebox.showerror("Error", "Please enter a valid size between 3 and 9.")
@@ -191,17 +194,48 @@ def main_window():
         """Open a new window for manual play."""
         play_window = tk.Toplevel(root)
         play_window.title("Play KenKen Puzzle")
-        center_window(play_window, 800, 800)  # Increased size to accommodate the canvas
-        play_window.configure(bg="lightblue")
+        
+        # Get screen dimensions
+        screen_width = play_window.winfo_screenwidth()
+        screen_height = play_window.winfo_screenheight()
+        
+        # Set initial window size to 90% of screen size
+        window_width = int(screen_width * 0.9)
+        window_height = int(screen_height * 0.9)
+        
+        # Create main frame with scrollbars
+        main_frame = tk.Frame(play_window)
+        main_frame.pack(fill=tk.BOTH, expand=True)
 
-        tk.Label(play_window, text="Play KenKen Puzzle", font=("Arial", 20, "bold"), bg="lightblue").pack(pady=20)
+        # Create canvas with scrollbars
+        h_scrollbar = tk.Scrollbar(main_frame, orient=tk.HORIZONTAL)
+        v_scrollbar = tk.Scrollbar(main_frame)
+        canvas_container = tk.Canvas(main_frame, 
+                                   xscrollcommand=h_scrollbar.set,
+                                   yscrollcommand=v_scrollbar.set)
 
-        # Dropdown to select a puzzle from the puzzles folder
-        puzzle_files = [f for f in os.listdir("puzzles") if f.endswith(".json")]
+        # Configure scrollbars
+        h_scrollbar.config(command=canvas_container.xview)
+        v_scrollbar.config(command=canvas_container.yview)
+        
+        # Pack scrollbars and canvas
+        h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
+        v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        canvas_container.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # Create frame inside canvas for content
+        content_frame = tk.Frame(canvas_container)
+        canvas_container.create_window((0, 0), window=content_frame, anchor="nw")
+
+        # Add title and controls to content frame
+        tk.Label(content_frame, text="Play KenKen Puzzle", 
+                font=("Arial", 20, "bold"), bg="lightblue").pack(pady=20)
+
+        # Dropdown to select a puzzle
+        puzzle_files = [f for f in os.listdir(str(PUZZLES_DIR)) if f.endswith(".json")]
         selected_puzzle = tk.StringVar(play_window)
         selected_puzzle.set("Select a puzzle")
-
-        tk.OptionMenu(play_window, selected_puzzle, *puzzle_files).pack(pady=10)
+        tk.OptionMenu(content_frame, selected_puzzle, *puzzle_files).pack(pady=10)
 
         def load_and_play():
             puzzle_file = selected_puzzle.get()
@@ -209,29 +243,44 @@ def main_window():
                 messagebox.showerror("Error", "Please select a puzzle.")
                 return
 
-            puzzle_path = os.path.join("puzzles", puzzle_file)
+            puzzle_path = os.path.join(str(PUZZLES_DIR), puzzle_file)
             try:
                 puzzle, solution = load_puzzle_from_file(puzzle_path)
                 size = puzzle.size
 
-                # Create a frame to hold the canvas
-                canvas_frame = tk.Frame(play_window, bg="lightblue")
-                canvas_frame.pack(pady=20)
+                # Clear previous puzzle if exists
+                for widget in content_frame.winfo_children():
+                    if isinstance(widget, tk.Canvas):
+                        widget.destroy()
 
-                # Calculate cell size and canvas dimensions
-                cell_size = 60
-                canvas_size = cell_size * size
-                padding = 20  # Extra space for cage operations
-                total_size = canvas_size + 2 * padding
+                # Calculate cell size based on window size
+                max_puzzle_size = min(window_width - 100, window_height - 200)  # Leave space for controls
+                cell_size = min(60, max_puzzle_size // size)  # Adjust cell size based on puzzle size
+                padding = 20
+                total_size = (cell_size * size) + (2 * padding)
 
-                # Create canvas
-                canvas = tk.Canvas(canvas_frame, width=total_size, height=total_size, bg="white")
-                canvas.pack()
+                # Create puzzle canvas
+                canvas = tk.Canvas(content_frame, width=total_size, height=total_size, 
+                                 bg="white")
+                canvas.pack(pady=20)
 
                 entries = []
-                entry_widgets = {}  # Store entry widgets with their coordinates
+                entry_widgets = {}
 
-                # Draw the grid and create entry widgets
+                def create_validator(row, col):
+                    def validate(P):
+                        if P == "":
+                            entry_widgets[(row, col)].config(bg="white")
+                            return True
+                        if P.isdigit():
+                            num = int(P)
+                            valid = 1 <= num <= size
+                            entry_widgets[(row, col)].config(bg="white" if valid else "pink")
+                            return valid
+                        return False
+                    return validate
+
+                # Draw grid and create entries
                 for r in range(size):
                     row_entries = []
                     for c in range(size):
@@ -240,26 +289,19 @@ def main_window():
                         x2 = x1 + cell_size
                         y2 = y1 + cell_size
 
-                        # Draw cell outline
                         canvas.create_rectangle(x1, y1, x2, y2, outline="gray")
 
-                        # Create entry widget
-                        entry = tk.Entry(canvas, width=2, font=("Arial", 16), justify="center")
-                        entry_window = canvas.create_window(x1 + cell_size/2, y1 + cell_size/2, window=entry)
+                        entry = tk.Entry(canvas, width=1, font=("Arial", int(cell_size/2)), 
+                                       justify="center")
+                        entry_window = canvas.create_window(x1 + cell_size/2, 
+                                                          y1 + cell_size/2, 
+                                                          window=entry)
                         row_entries.append(entry)
                         entry_widgets[(r, c)] = entry
-
-                        # Restrict input to valid numbers
-                        def validate_input(P):
-                            if P == "":
-                                return True
-                            if P.isdigit():
-                                num = int(P)
-                                return 1 <= num <= size
-                            return False
-
-                        reg = play_window.register(validate_input)
-                        entry.config(validate="key", validatecommand=(reg, "%P"))
+                        
+                        validator = create_validator(r, c)
+                        entry.config(validate="key", 
+                                   validatecommand=(play_window.register(validator), '%P'))
 
                     entries.append(row_entries)
 
@@ -268,30 +310,30 @@ def main_window():
                     cells = cage.cells
                     operation_text = f"{cage.operation_str}{cage.value}"
 
-                    # Draw the cage boundaries
                     for i, (r, c) in enumerate(cells):
                         x1 = c * cell_size + padding
                         y1 = r * cell_size + padding
                         x2 = x1 + cell_size
                         y2 = y1 + cell_size
 
-                        # Check adjacent cells to determine which borders to draw bold
                         for adj_r, adj_c in [(r-1, c), (r+1, c), (r, c-1), (r, c+1)]:
                             if (adj_r, adj_c) not in cells:
-                                if adj_r == r - 1:  # Top border
+                                if adj_r == r - 1:
                                     canvas.create_line(x1, y1, x2, y1, width=2, fill="black")
-                                elif adj_r == r + 1:  # Bottom border
+                                elif adj_r == r + 1:
                                     canvas.create_line(x1, y2, x2, y2, width=2, fill="black")
-                                elif adj_c == c - 1:  # Left border
+                                elif adj_c == c - 1:
                                     canvas.create_line(x1, y1, x1, y2, width=2, fill="black")
-                                elif adj_c == c + 1:  # Right border
+                                elif adj_c == c + 1:
                                     canvas.create_line(x2, y1, x2, y2, width=2, fill="black")
 
-                    # Add operation text in the top-left corner of the first cell
+                    # Add operation text
                     first_cell = cells[0]
                     x = first_cell[1] * cell_size + padding + 2
                     y = first_cell[0] * cell_size + padding + 2
-                    canvas.create_text(x, y, text=operation_text, anchor="nw", font=("Arial", 10, "bold"))
+                    font_size = max(8, int(cell_size/5))  # Adjust font size based on cell size
+                    canvas.create_text(x, y, text=operation_text, 
+                                     anchor="nw", font=("Arial", font_size, "bold"))
 
                 def validate_solution():
                     user_solution = []
@@ -300,33 +342,51 @@ def main_window():
                         for c in range(size):
                             value = entries[r][c].get()
                             if not value:
-                                messagebox.showerror("Error", f"Please fill in all cells.")
+                                messagebox.showerror("Error", "Please fill in all cells.")
                                 return
                             if not value.isdigit():
-                                messagebox.showerror("Error", f"Invalid input at cell ({r+1}, {c+1}). Please enter numbers only.")
+                                messagebox.showerror("Error", 
+                                                  f"Invalid input at cell ({r+1}, {c+1})")
                                 return
                             row.append(int(value))
                         user_solution.append(row)
 
                     if user_solution == solution:
-                        messagebox.showinfo("Success", "Congratulations! Your solution is correct!")
-                        # Highlight the correct solution in green
+                        messagebox.showinfo("Success", 
+                                          "Congratulations! Your solution is correct!")
                         for r in range(size):
                             for c in range(size):
                                 entries[r][c].config(bg="lightgreen")
                     else:
                         messagebox.showerror("Error", "Incorrect solution. Please try again.")
 
-                validate_button = tk.Button(play_window, text="Validate Solution", 
-                                         font=("Arial", 16), command=validate_solution,
-                                         bg="green", fg="white")
+                validate_button = tk.Button(content_frame, text="Validate Solution", 
+                                          font=("Arial", 16), command=validate_solution,
+                                          bg="green", fg="white")
                 validate_button.pack(pady=20)
+
+                # Update scroll region after adding all widgets
+                content_frame.update_idletasks()
+                canvas_container.config(scrollregion=canvas_container.bbox("all"))
 
             except Exception as e:
                 messagebox.showerror("Error", str(e))
 
-        tk.Button(play_window, text="Load Puzzle", font=("Arial", 16),
-                 command=load_and_play, bg="orange", fg="white").pack(pady=20)
+        load_button = tk.Button(content_frame, text="Load Puzzle", font=("Arial", 16),
+                               command=load_and_play, bg="orange", fg="white")
+        load_button.pack(pady=20)
+
+        # Set window size and position
+        x = (screen_width - window_width) // 2
+        y = (screen_height - window_height) // 2
+        play_window.geometry(f"{window_width}x{window_height}+{x}+{y}")
+
+        # Update scroll region initially
+        content_frame.update_idletasks()
+        canvas_container.config(scrollregion=canvas_container.bbox("all"))
+
+        # Make window resizable
+        play_window.resizable(True, True)
 
     root = tk.Tk()
     root.title("KenKen Puzzle")

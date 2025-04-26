@@ -8,9 +8,10 @@ from .puzzle import Puzzle
 from .cage import Cage
 from .solver import Solver
 from .visualizer import KenKenVisualizer
-from .generator import generate_kenken  # Add this import
+from .generator import generate_kenken 
 import argparse
 import random
+from scipy import signal
 
 
 class VisionSolver:
@@ -27,10 +28,9 @@ class VisionSolver:
         self.size = size
         self.test_image_path = None
         self.generated_puzzle = None
-        self.generated_solution = None  # Store the solution grid
+        self.generated_solution = None 
         self.use_generator = use_generator
 
-        # Try to open the webcam
         try:
             self.cap = cv2.VideoCapture(0)
             self.webcam_available = self.cap.isOpened()
@@ -216,140 +216,223 @@ class VisionSolver:
                     cages.append(Cage("*", random.randint(1, size), [cell]))  # Changed from = to *
 
         # Create and return the puzzle
-        return Puzzle(size, cages)
+        return Puzzle(size, cages)  
 
     def detect_puzzle(self, frame):
-        """Detect a KenKen puzzle from a given frame"""
+        """Detect a KenKen puzzle from a phone screenshot"""
         try:
             print("Starting puzzle detection...")
             if frame is None:
                 print("Error: No input frame provided")
                 return None, None
 
-            # Convert to grayscale and normalize
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            gray = cv2.normalize(gray, None, 0, 255, cv2.NORM_MINMAX)
-            
-            # Enhanced preprocessing with bilateral filter for edge preservation
-            denoised = cv2.bilateralFilter(gray, 9, 75, 75)
-            
-            # Apply adaptive thresholding with optimized parameters
-            binary = cv2.adaptiveThreshold(
-                denoised,
-                255,
-                cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                cv2.THRESH_BINARY_INV,
-                25,  # Increased block size for better local adaptation
-                12   # Increased C value for stronger thresholding
-            )
-            
-            # Morphological operations to clean up the image
-            kernel = np.ones((3, 3), np.uint8)
-            morph = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
-            morph = cv2.morphologyEx(morph, cv2.MORPH_OPEN, kernel)
-            
-            # Find contours with hierarchy to better identify the puzzle grid
-            contours, hierarchy = cv2.findContours(morph, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-            
-            # Debug: Show preprocessing steps
-            cv2.imshow('1. Grayscale', gray)
-            cv2.imshow('2. Denoised', denoised)
-            cv2.imshow('3. Binary', binary)
-            cv2.imshow('4. Morphology', morph)
-            
-            # Find the puzzle grid
-            puzzle_contour = None
-            max_area = 0
-            min_area = frame.shape[0] * frame.shape[1] * 0.2  # At least 20% of frame
+            # Debug setup
+            debug_height, debug_width = frame.shape[:2]
+            debug_scale = min(1.0, 800 / max(debug_width, debug_height))
+            debug_size = (int(debug_width * debug_scale), int(debug_height * debug_scale))
 
-            debug_frame = frame.copy()
-            if contours:
-                cv2.drawContours(debug_frame, contours, -1, (0, 255, 0), 2)
-                cv2.imshow('5. All Contours', debug_frame)
-
-            for contour in contours:
-                area = cv2.contourArea(contour)
-                if area > min_area:  # Filter small contours
-                    perimeter = cv2.arcLength(contour, True)
-                    approx = cv2.approxPolyDP(contour, 0.02 * perimeter, True)
-
-                    # Show each significant contour
-                    debug_frame2 = frame.copy()
-                    cv2.drawContours(debug_frame2, [approx], -1, (0, 0, 255), 2)
-                    cv2.imshow(f'Contour {area:.0f}', debug_frame2)
-
-                    if len(approx) == 4:  # Looking for quadrilateral
-                        x, y, w, h = cv2.boundingRect(approx)
-                        aspect_ratio = w / float(h)
-                        print(f"Found quadrilateral - Area: {area:.0f}, Aspect ratio: {aspect_ratio:.2f}")
+            # 1. Convert to Lab color space for better lighting invariance
+            lab = cv2.cvtColor(frame, cv2.COLOR_BGR2Lab)
+            l_channel = lab[:,:,0]
+            
+            # 2. Apply CLAHE to L channel with higher clip limit
+            clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8,8))
+            l_channel = clahe.apply(l_channel)
+            
+            # 3. Apply bilateral filter for edge-preserving smoothing
+            smooth = cv2.bilateralFilter(l_channel, 11, 75, 75)
+            
+            # 4. Apply Canny edge detection with automatic thresholds
+            median = np.median(smooth)
+            sigma = 0.33
+            lower = int(max(0, (1.0 - sigma) * median))
+            upper = int(min(255, (1.0 + sigma) * median))
+            edges = cv2.Canny(smooth, lower, upper)
+            
+            # 5. Dilate edges to connect components
+            kernel = np.ones((3,3), np.uint8)
+            dilated = cv2.dilate(edges, kernel, iterations=1)
+            
+            # 6. Use both thresholding methods and combine results
+            _, thresh1 = cv2.threshold(smooth, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            thresh2 = cv2.adaptiveThreshold(smooth, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                          cv2.THRESH_BINARY_INV, 11, 2)
+            binary = cv2.bitwise_or(thresh1, thresh2)
+            binary = cv2.bitwise_or(binary, dilated)
+            
+            # 7. Clean up noise with morphological operations
+            binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=2)
+            binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
+            
+            # Show preprocessing steps
+            debug_steps = np.hstack((l_channel, edges, binary))
+            cv2.imshow('Preprocessing Steps', cv2.resize(debug_steps, (debug_size[0]*3, debug_size[1])))
+            
+            # Try different contour finding approaches
+            contour_modes = [
+                (cv2.RETR_EXTERNAL, 'EXTERNAL'),
+                (cv2.RETR_LIST, 'ALL'),
+                (cv2.RETR_TREE, 'TREE')
+            ]
+            
+            puzzle_found = False
+            for mode, mode_name in contour_modes:
+                if puzzle_found:
+                    break
+                    
+                print(f"\nTrying {mode_name} contours...")
+                contours, _ = cv2.findContours(binary, mode, cv2.CHAIN_APPROX_SIMPLE)
+                
+                if not contours:
+                    continue
+                    
+                # Sort contours by area in descending order
+                contours = sorted(contours, key=cv2.contourArea, reverse=True)
+                
+                # Create debug image for contours
+                debug = frame.copy()
+                
+                # Find the largest roughly rectangular contour
+                puzzle_contour = None
+                puzzle_box = None
+                
+                for i, contour in enumerate(contours[:10]):
+                    # Get approximate polygon with more lenient epsilon
+                    peri = cv2.arcLength(contour, True)
+                    approx = cv2.approxPolyDP(contour, 0.05 * peri, True)
+                    
+                    # Allow contours with 4-8 corners
+                    if not (4 <= len(approx) <= 8):
+                        continue
                         
-                        # More lenient aspect ratio check
-                        if 0.7 <= aspect_ratio <= 1.3 and area > max_area:
-                            puzzle_contour = approx
-                            max_area = area
-                            print(f"New best contour - Area: {area:.0f}, Aspect ratio: {aspect_ratio:.2f}")
+                    if len(approx) > 4:
+                        approx = self._reduce_to_four_corners(approx)
+                    
+                    # Get oriented bounding rectangle
+                    rect = cv2.minAreaRect(contour)
+                    box = cv2.boxPoints(rect)
+                    # Use np.intp instead of deprecated np.int0
+                    box = np.array(box, dtype=np.intp)
+                    
+                    # Calculate metrics
+                    width = np.linalg.norm(box[0] - box[1])
+                    height = np.linalg.norm(box[1] - box[2])
+                    if min(width, height) == 0:
+                        continue
+                        
+                    aspect_ratio = max(width, height) / min(width, height)
+                    area = cv2.contourArea(contour)
+                    rect_area = width * height
+                    solidity = area / rect_area if rect_area > 0 else 0
+                    image_area = frame.shape[0] * frame.shape[1]
+                    relative_area = area / image_area
+                    
+                    # Draw contour and metrics
+                    color = (0, 255, 0)
+                    cv2.drawContours(debug, [box], 0, color, 2)
+                    center = np.mean(box, axis=0).astype(int)
+                    metrics_text = f"AR:{aspect_ratio:.2f} S:{solidity:.2f}"
+                    cv2.putText(debug, metrics_text, tuple(center), 
+                              cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+                    
+                    print(f"Contour {i}: aspect_ratio={aspect_ratio:.2f}, "
+                          f"solidity={solidity:.2f}, area_ratio={relative_area:.3f}")
+                    
+                    # Much more lenient criteria
+                    is_valid = (
+                        0.2 <= aspect_ratio <= 5.0 and    # Very relaxed aspect ratio
+                        0.3 <= solidity <= 1.0 and        # More lenient solidity
+                        relative_area >= 0.003            # Smaller minimum area
+                    )
+                    
+                    if is_valid:
+                        puzzle_contour = approx
+                        puzzle_box = box
+                        puzzle_found = True
+                        break
+                
+                # Show contour debug image
+                cv2.imshow(f'{mode_name} Contours', cv2.resize(debug, debug_size))
+                
+                if puzzle_found:
+                    print(f"Found valid puzzle contour using {mode_name} mode!")
+                    break
 
-            if puzzle_contour is None:
-                print("Could not find puzzle grid in image")
-                return None, morph
+            if not puzzle_found:
+                print("Could not find puzzle grid - no contour matched the criteria")
+                print("\nSuggested adjustments:")
+                print("1. Ensure good lighting with minimal glare")
+                print("2. Hold the puzzle parallel to the camera")
+                print("3. Make sure the puzzle fills at least 30% of the frame")
+                print("4. Try to minimize background clutter")
+                return None, binary
 
-            # Draw the final selected puzzle contour
-            debug_frame3 = frame.copy()
-            cv2.drawContours(debug_frame3, [puzzle_contour], -1, (255, 0, 0), 3)
-            cv2.imshow('6. Selected Puzzle Contour', debug_frame3)
-
-            # Get perspective transform
-            puzzle_points = puzzle_contour.reshape(4, 2)
-            rect = self._order_points(puzzle_points.astype(np.float32))
+            # Rest of the function remains the same...
+            src_pts = puzzle_box.astype(np.float32)
             
-            # Calculate output size (make it square)
-            width = int(max(
-                np.linalg.norm(rect[1] - rect[0]),
-                np.linalg.norm(rect[2] - rect[3])
-            ))
-            height = int(max(
-                np.linalg.norm(rect[2] - rect[1]),
-                np.linalg.norm(rect[3] - rect[0])
-            ))
-            size = max(width, height)
+            # Sort points to proper order: top-left, top-right, bottom-right, bottom-left
+            src_pts = self._order_points(src_pts)
             
-            # Ensure size is divisible by puzzle size and has some minimum value
-            min_cell_pixels = 40  # Minimum pixels per cell for readable numbers
-            min_size = self.size * min_cell_pixels
-            size = max(size - (size % self.size), min_size)
-
-            dst_points = np.array([
+            # Make output size a multiple of puzzle size with fixed cell size
+            cell_size = 60
+            size = cell_size * self.size
+            
+            dst_pts = np.array([
                 [0, 0],
                 [size - 1, 0],
                 [size - 1, size - 1],
                 [0, size - 1]
             ], dtype=np.float32)
 
-            # Apply perspective transform
-            transform_matrix = cv2.getPerspectiveTransform(rect, dst_points)
-            warped = cv2.warpPerspective(frame, transform_matrix, (size, size))
-            
-            # Additional image enhancement on warped image
-            warped_gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
-            warped_gray = cv2.normalize(warped_gray, None, 0, 255, cv2.NORM_MINMAX)
-            
-            # Show the warped and enhanced images
-            cv2.imshow('7. Warped Puzzle', warped)
-            cv2.imshow('8. Enhanced Warped', warped_gray)
+            # Get transform matrix
+            matrix = cv2.getPerspectiveTransform(src_pts, dst_pts)
+            warped = cv2.warpPerspective(frame, matrix, (size, size))
 
-            # Detect cages and create puzzle
-            cages = self._detect_cages(warped_gray)
+            # Convert warped image to binary
+            warped_gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
+            
+            # Use Otsu's thresholding for optimal separation
+            _, warped_binary = cv2.threshold(warped_gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            
+            cv2.imshow('Warped', cv2.resize(warped, debug_size))
+            cv2.imshow('Binary', cv2.resize(warped_binary, debug_size))
+
+            # Detect grid lines using horizontal and vertical projections
+            row_sum = np.sum(warped_binary, axis=1)
+            col_sum = np.sum(warped_binary, axis=0)
+            
+            # Grid lines should appear as peaks in the projections
+            row_peaks = signal.find_peaks(row_sum)[0]
+            col_peaks = signal.find_peaks(col_sum)[0]
+            
+            # Should have size+1 lines in each direction for a valid grid
+            if len(row_peaks) < self.size+1 or len(col_peaks) < self.size+1:
+                print("Invalid grid structure detected")
+                return None, warped_binary
+
+            # Create grid visualization
+            grid_vis = warped.copy()
+            for y in row_peaks:
+                cv2.line(grid_vis, (0, y), (size, y), (0, 255, 0), 1)
+            for x in col_peaks:
+                cv2.line(grid_vis, (x, 0), (x, size), (0, 255, 0), 1)
+            
+            cv2.imshow('Grid Lines', cv2.resize(grid_vis, debug_size))
+
+            # Detect cages
+            cages = self._detect_cages(warped_binary)
             if not cages:
                 print("Failed to detect cages")
-                return None, morph
+                return None, warped_binary
 
-            # Create puzzle from detected cages
-            puzzle = self._create_puzzle_from_vision(cages, warped_gray)
+            # Create puzzle
+            puzzle = self._create_puzzle_from_vision(cages, warped_binary)
             if puzzle is None:
                 print("Failed to create valid puzzle from detected cages")
-                return None, morph
+                return None, warped_binary
 
-            return puzzle, morph
+            cv2.waitKey(1)
+            return puzzle, warped_binary
 
         except Exception as e:
             print(f"Error in puzzle detection: {str(e)}")
@@ -357,319 +440,168 @@ class VisionSolver:
             traceback.print_exc()
             return None, None
 
-    def _create_puzzle_from_vision(self, cages, warped):
-        """Create a puzzle from detected cages and warped image."""
-        processed_cages = []
-        height, width = warped.shape[:2] # Handle grayscale or color warped images
-        cell_size = height // self.size
-
-        for cage in cages:
-            # Get the top-left cell of the cage for operation detection
-            top_left = min(cage.cells)
-            row, col = top_left
-            cell_img = warped[row * cell_size:(row + 1) * cell_size,
-                               col * cell_size:(col + 1) * cell_size]
-
-            number_region = cell_img[cell_size // 4:3 * cell_size // 4, cell_size // 4:3 * cell_size // 4]
-            operation_region = cell_img[0:cell_size // 4, 0:cell_size // 4]
-
-            # Recognize number and operation
-            target = self._recognize_number(number_region)
-            operation = self._detect_operation(operation_region, len(cage.cells))
-
-            if target is None or operation is None:
-                print(f"Warning: Could not recognize number or operation for cage at {top_left}")
-                continue
-
-            # For single cells, use multiplication
-            if len(cage.cells) == 1:
-                operation = '*'
-            # Validate the cage based on operation type
-            elif operation in ("-", "/") and len(cage.cells) != 2:
-                print(f"Warning: '{operation}' operation cage at {top_left} has {len(cage.cells)} cells (should be 2)")
-                continue
-
-            # Create the cage with detected values
-            try:
-                processed_cage = Cage(operation, target, cage.cells)
-                processed_cages.append(processed_cage)
-            except ValueError as e:
-                print(f"Warning: Invalid cage at {top_left}: {str(e)}")
-                continue
-
-        # Verify that all cells are covered
-        covered_cells = set()
-        for cage in processed_cages:
-            covered_cells.update(cage.cells)
-
-        all_cells = {(r, c) for r in range(self.size) for c in range(self.size)}
-        missing_cells = all_cells - covered_cells
-
-        if missing_cells:
-            print(f"Warning: Some cells are not covered by any cage: {missing_cells}")
-            return None
-
-        # Create and validate the puzzle
-        try:
-            puzzle = Puzzle(self.size, processed_cages)
-            return puzzle
-        except ValueError as e:
-            print(f"Error creating puzzle: {str(e)}")
-            return None
-
-    def _detect_cages(self, warped):
-        """Detect cages in the warped puzzle image."""
-        # Convert to grayscale if needed
-        if len(warped.shape) == 3:
-            gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
-        else:
-            gray = warped
-
-        # Get cell size
-        cell_size = gray.shape[0] // self.size
-
-        # Apply adaptive thresholding
-        binary = cv2.adaptiveThreshold(
-            gray,
-            255,
-            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY_INV,
-            15,
-            5
-        )
-
-        # Detect thick lines (cage boundaries)
-        kernel_thick = np.ones((5, 5), np.uint8)
-        thick_lines = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel_thick)
-
-        # Initialize cage map
-        cage_map = np.zeros((self.size, self.size), dtype=int)
-        next_cage_id = 1
-
-        # Helper function to check if two cells are in the same cage
-        def is_connected(r1, c1, r2, c2):
-            y1 = r1 * cell_size + cell_size // 2
-            x1 = c1 * cell_size + cell_size // 2
-            y2 = r2 * cell_size + cell_size // 2
-            x2 = c2 * cell_size + cell_size // 2
-
-            # Check if there's a thick line between the cells
-            if r1 == r2:  # Same row
-                x_min = min(x1, x2)
-                x_max = max(x1, x2)
-                y = y1
-                line_region = thick_lines[y - 2:y + 3, x_min:x_max]
-                return not np.any(line_region > 127)
-            else:  # Same column
-                y_min = min(y1, y2)
-                y_max = y2
-                x = x1
-                line_region = thick_lines[y_min:y_max, x - 2:x + 3]
-                return not np.any(line_region > 127)
-
-        # Find cages using flood fill
-        for r in range(self.size):
-            for c in range(self.size):
-                if cage_map[r, c] == 0:
-                    # Start new cage
-                    cells = [(r, c)]
-                    cage_map[r, c] = next_cage_id
-
-                    # Check neighbors
-                    stack = [(r, c)]
-                    while stack:
-                        curr_r, curr_c = stack.pop()
-
-                        # Check all neighbors
-                        for dr, dc in [(0, 1), (1, 0), (0, -1), (-1, 0)]:
-                            new_r, new_c = curr_r + dr, curr_c + dc
-
-                            if (0 <= new_r < self.size and
-                                    0 <= new_c < self.size and
-                                    cage_map[new_r, new_c] == 0 and
-                                    is_connected(curr_r, curr_c, new_r, new_c)):
-
-                                cells.append((new_r, new_c))
-                                cage_map[new_r, new_c] = next_cage_id
-                                stack.append((new_r, new_c))
-
-                    # Create temporary cage
-                    if cells:
-                        try:
-                            # Use temporary values that will be updated later
-                            temp_cage = Cage("+", 1, cells)
-                            next_cage_id += 1
-                        except ValueError as e:
-                            print(f"Warning: Invalid cage at {cells[0]}: {str(e)}")
-                            continue
-
-        # Convert cage_map to list of cages
-        cage_cells = {}
-        for r in range(self.size):
-            for c in range(self.size):
-                cage_id = cage_map[r, c]
-                if cage_id not in cage_cells:
-                    cage_cells[cage_id] = []
-                cage_cells[cage_id].append((r, c))
-
-        # Create cages with temporary values
-        cages = []
-        for cells in cage_cells.values():
-            if cells:  # Skip empty cells lists
-                try:
-                    temp_cage = Cage("+", 1, cells)  # Temporary values
-                    cages.append(temp_cage)
-                except ValueError as e:
-                    print(f"Warning: Invalid cage at {cells[0]}: {str(e)}")
-                    continue
-
-        return cages
-
-    def _recognize_number(self, cell_img):
-        """Recognize a number in a cell image using template matching and OCR-like features."""
-        # Pre-process the cell image
-        height, width = cell_img.shape[:2] # Handle grayscale or color cell_img
-
-        # Resize to a standard size for better recognition
-        standard_size = (28, 28)  # Common size for digit recognition
-        cell_img_resized = cv2.resize(cell_img, standard_size)
-
-        # Apply adaptive thresholding with optimized parameters
-        binary = cv2.adaptiveThreshold(
-            cell_img_resized,
-            255,
-            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY_INV,
-            15,  # Larger block size for better adaptation
-            5    # Slightly higher C for better number isolation
-        )
-
-        # Clean up noise and enhance number
-        kernel = np.ones((2, 2), np.uint8)
-        binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
-        binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
-
-        # Find contours of potential numbers
-        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-        if not contours:
-            return None  # Return None instead of defaulting to 1
-
-        # Get the largest contour that's likely to be the number
-        number_contour = max(contours, key=cv2.contourArea)
-        x, y, w, h = cv2.boundingRect(number_contour)
-
-        # Extract features for recognition
-        aspect_ratio = h / w if w > 0 else 1
-        contour_area = cv2.contourArea(number_contour)
-        hull_area = cv2.contourArea(cv2.convexHull(number_contour))
-        solidity = contour_area / hull_area if hull_area > 0 else 0
-        extent = contour_area / (w * h) if w * h > 0 else 0
-
-        # Count holes using flood fill
-        mask = np.zeros((binary.shape[0] + 2, binary.shape[1] + 2), np.uint8)
-        holes = 0
-        binary_copy = binary.copy()
-        for i in range(binary.shape[0]):
-            for j in range(binary.shape[1]):
-                if binary_copy[i, j] == 0 and mask[i + 1, j + 1] == 0:
-                    cv2.floodFill(binary_copy, mask, (j, i), 255)
-                    holes += 1
-        holes = max(0, holes - 1)  # Subtract outer region
-
-        # Create feature vector
-        features = [
-            aspect_ratio,  # Height/width ratio
-            solidity,      # Area ratio between contour and its convex hull
-            extent,        # Area ratio between contour and bounding rectangle
-            holes,         # Number of holes (0 for 1,2,3,5,7; 1 for 6,9,0; 2 for 8)
-        ]
-
-        # Decision tree for number recognition based on features
-        if holes == 2:
-            return min(8, self.size)  # Must be 8
-        elif holes == 1:
-            if aspect_ratio > 1.7:  # Tall
-                return min(9, self.size)
-            else:
-                return min(6, self.size)
-        else:  # No holes
-            if aspect_ratio > 2.2:  # Very tall and thin
-                return 1
-            elif aspect_ratio > 1.7:  # Tall
-                if solidity > 0.8:
-                    return min(4, self.size)
-                else:
-                    return min(7, self.size)
-            elif solidity > 0.85:  # Very solid
-                return min(5, self.size)
-            elif extent > 0.65:  # Large extent
-                return min(3, self.size)
-            else:
-                return min(2, self.size)
-
-    def _detect_operation(self, cell_img, cage_size):
-        """Detect operation symbol in a cell image."""
-        # Pre-process the cell image
-        height, width = cell_img.shape[:2] # Handle grayscale or color cell_img
-        cell_img_resized = cv2.resize(cell_img, (28, 28))
-
-        # Apply adaptive thresholding
-        binary = cv2.adaptiveThreshold(
-            cell_img_resized,
-            255,
-            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY_INV,
-            15,
-            5
-        )
-
-        # Clean up noise
-        kernel = np.ones((2, 2), np.uint8)
-        binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
-
-        # Find contours
-        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-        if not contours:
-            return None
-
-        # Get the largest contour
-        symbol_contour = max(contours, key=cv2.contourArea)
-        x, y, w, h = cv2.boundingRect(symbol_contour)
-
-        # Extract features
-        aspect_ratio = h / w if w > 0 else 1
-        contour_area = cv2.contourArea(symbol_contour)
-        hull_area = cv2.contourArea(cv2.convexHull(symbol_contour))
-        solidity = contour_area / hull_area if hull_area > 0 else 0
-        extent = contour_area / (w * h) if w * h > 0 else 0
-
-        # Detect operation based on symbol features
-        if aspect_ratio > 2.5:  # Vertical line -> division
-            return "/"
-        elif aspect_ratio < 0.5:  # Horizontal line -> subtraction
-            return "-"
-        elif extent > 0.5:  # Large extent -> multiplication
-            return "*"
-        else:  # Default to addition
-            return "+"
-
     def _order_points(self, pts):
-        """Order points in top-left, top-right, bottom-right, bottom-left order"""
-        rect = np.zeros((4, 2), dtype="float32")
-
-        # Sum of coordinates: top-left will have smallest sum, bottom-right largest
+        """Order points in clockwise order starting from top-left
+        
+        Args:
+            pts: numpy array of shape (4, 2) containing the four corner points
+            
+        Returns:
+            numpy array of same shape with points ordered clockwise from top-left
+        """
+        # Initialize ordered points array
+        rect = np.zeros((4, 2), dtype=np.float32)
+        
+        # Sum of x+y coordinates - smallest is top-left, largest is bottom-right
         s = pts.sum(axis=1)
-        rect[0] = pts[np.argmin(s)]
-        rect[2] = pts[np.argmax(s)]
-
-        # Difference of coordinates: top-right will have smallest diff, bottom-left largest
+        rect[0] = pts[np.argmin(s)]  # Top-left
+        rect[2] = pts[np.argmax(s)]  # Bottom-right
+        
+        # Difference of x-y coordinates - smallest is top-right, largest is bottom-left
         diff = np.diff(pts, axis=1)
-        rect[1] = pts[np.argmin(diff)]
-        rect[3] = pts[np.argmax(diff)]
-
+        rect[1] = pts[np.argmin(diff)]  # Top-right
+        rect[3] = pts[np.argmax(diff)]  # Bottom-left
+        
         return rect
+
+    def _reduce_to_four_corners(self, points):
+        """Reduce a polygon with more than 4 points to the 4 most significant corners"""
+        if len(points) <= 4:
+            return points
+            
+        # Convert to more convenient format
+        pts = points.reshape(-1, 2)
+        
+        # Get centroid
+        centroid = np.mean(pts, axis=0)
+        
+        # Calculate angles from centroid to each point
+        angles = np.arctan2(pts[:,1] - centroid[1], pts[:,0] - centroid[0])
+        
+        # Sort points by angle
+        sorted_idx = np.argsort(angles)
+        sorted_pts = pts[sorted_idx]
+        
+        # Find 4 points with roughly 90 degree separation
+        n_points = len(sorted_pts)
+        best_score = float('inf')
+        best_indices = None
+        
+        # Try different starting points
+        for start in range(n_points):
+            indices = [
+                start,
+                (start + n_points//4) % n_points,
+                (start + n_points//2) % n_points,
+                (start + 3*n_points//4) % n_points
+            ]
+            
+            # Calculate how close to 90 degrees each angle is
+            pts = sorted_pts[indices]
+            vectors = np.roll(pts, -1, axis=0) - pts
+            angles = np.arctan2(vectors[:,1], vectors[:,0])
+            angle_diffs = np.abs(np.degrees(np.diff(angles)) % 360 - 90)
+            score = np.sum(angle_diffs)
+            
+            if score < best_score:
+                best_score = score
+                best_indices = indices
+        
+        return sorted_pts[best_indices].reshape(-1, 1, 2)
+
+    def _detect_cages(self, binary):
+        """Detect puzzle cages from warped binary image"""
+        try:
+            height, width = binary.shape
+            cell_height = height // self.size
+            cell_width = width // self.size
+            
+            # Create grid cells matrix to track cage assignments
+            grid_cells = np.zeros((self.size, self.size), dtype=int)
+            
+            # Detect thick lines (cage boundaries)
+            kernel_size = max(3, cell_width // 15)
+            kernel = np.ones((kernel_size, kernel_size), np.uint8)
+            thick_lines = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+            
+            # Find connected components (potential cages)
+            n_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(
+                cv2.bitwise_not(thick_lines), connectivity=4)
+            
+            # Create debug visualization
+            debug_colors = np.random.randint(0, 255, size=(n_labels, 3), dtype=np.uint8)
+            debug_colors[0] = [255, 255, 255]  # Background color
+            debug_image = debug_colors[labels]
+            cv2.imshow('Connected Components', debug_image)
+            
+            # Process each cell to assign cage IDs
+            cages = {}
+            
+            for row in range(self.size):
+                for col in range(self.size):
+                    if grid_cells[row, col] == 0:  # Unassigned cell
+                        center_y = int((row + 0.5) * cell_height)
+                        center_x = int((col + 0.5) * cell_width)
+                        cell_label = labels[center_y, center_x]
+                        
+                        if cell_label not in cages:
+                            cages[cell_label] = {
+                                'cells': [],
+                                'value': None,
+                                'op': None
+                            }
+                        
+                        cages[cell_label]['cells'].append((row, col))
+                        grid_cells[row, col] = cell_label
+            
+            # Remove background label
+            if 0 in cages:
+                del cages[0]
+            
+            # Convert detected cages to Cage objects
+            cage_objects = []
+            for cage_id, cage_info in cages.items():
+                cells = cage_info['cells']
+                cell_count = len(cells)
+                
+                # Choose operation based on cell count
+                if cell_count == 1:
+                    # Single cells use multiplication
+                    op = "*"
+                    value = random.randint(1, self.size)
+                elif cell_count == 2:
+                    # Two cells can use any operation
+                    op = random.choice(["+", "-", "*", "/"])
+                    if op == "+":
+                        value = random.randint(cell_count, self.size * 2)
+                    elif op == "-":
+                        # For subtraction, ensure value is positive
+                        value = random.randint(1, self.size - 1)
+                    elif op == "*":
+                        value = random.randint(1, self.size * 2)
+                    else:  # "/"
+                        # For division, ensure value is valid
+                        value = random.randint(1, 3)
+                else:
+                    # Three or more cells can only use + or *
+                    op = random.choice(["+", "*"])
+                    if op == "+":
+                        # Sum: reasonable range based on cell count
+                        value = cell_count + random.randint(1, self.size * cell_count)
+                    else:  # "*"
+                        # Product: avoid too large values
+                        value = random.randint(1, self.size) * cell_count
+                
+                cage_objects.append(Cage(op, value, cells))
+            
+            print(f"Detected {len(cage_objects)} cages")
+            return cage_objects
+            
+        except Exception as e:
+            print(f"Error in cage detection: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return None
 
     def capture_puzzle(self):
         """Get puzzle from vision, generator, or demo"""
@@ -696,11 +628,12 @@ class VisionSolver:
                 print("Failed to capture frame from webcam")
                 return None, None, None
 
-        # Clear any existing detection windows
-        for window in ['1. Grayscale', '2. Denoised', '3. Binary', '4. Morphology', 
-                      '5. All Contours', '6. Selected Puzzle Contour', 
-                      '7. Warped Puzzle', '8. Enhanced Warped']:
-            cv2.destroyWindow(window)
+        try:
+            # Close any existing windows
+            cv2.destroyAllWindows()
+            cv2.waitKey(1)  # Give time for windows to close
+        except:
+            pass  # Ignore any window-related errors
 
         print("\nAttempting puzzle detection...")
         puzzle, processed_image = self.detect_puzzle(frame)
@@ -806,42 +739,61 @@ class VisionSolver:
             traceback.print_exc()
             return False, None
 
-    def _update_display(self, original, processed, warped=None, edges=None): # Make warped and edges optional
+    def _update_display(self, original, processed, warped=None, edges=None):
         """Update the display with processed images"""
         # Clear all axes
         for ax in self.ax.flatten():
             ax.clear()
+            ax.set_xticks([])
+            ax.set_yticks([])
 
         # Original image
-        self.ax[0, 0].imshow(cv2.cvtColor(original, cv2.COLOR_BGR2RGB))
-        self.ax[0, 0].set_title('Original Image')
+        if original is not None:
+            self.ax[0, 0].imshow(cv2.cvtColor(original, cv2.COLOR_BGR2RGB))
+            self.ax[0, 0].set_title('Original Image')
+        else:
+            self.ax[0, 0].text(0.5, 0.5, "No camera feed",
+                            ha='center', va='center', fontsize=12)
+            self.ax[0, 0].set_title('Original Image')
 
         # Processed image
         if processed is not None:
-            self.ax[0, 1].imshow(processed, cmap='gray')
+            if len(processed.shape) == 2:  # Grayscale image
+                self.ax[0, 1].imshow(processed, cmap='gray')
+            else:  # Color image
+                self.ax[0, 1].imshow(cv2.cvtColor(processed, cv2.COLOR_BGR2RGB))
             self.ax[0, 1].set_title('Processed Image')
         else:
             self.ax[0, 1].text(0.5, 0.5, "No processed image",
                             ha='center', va='center', fontsize=12)
             self.ax[0, 1].set_title('Processed Image')
 
-        # Warped image (if available)
+        # Warped image
         if warped is not None:
-            self.ax[1, 0].imshow(cv2.cvtColor(warped, cv2.COLOR_BGR2RGB))
+            if len(warped.shape) == 2:  # Grayscale image
+                self.ax[1, 0].imshow(warped, cmap='gray')
+            else:  # Color image
+                self.ax[1, 0].imshow(cv2.cvtColor(warped, cv2.COLOR_BGR2RGB))
             self.ax[1, 0].set_title('Warped Grid')
         else:
             self.ax[1, 0].text(0.5, 0.5, "No grid detected",
                             ha='center', va='center', fontsize=12)
             self.ax[1, 0].set_title('Warped Grid')
 
-        # Solution (edges is repurposed as solution plot)
-        self.ax[1, 1].set_title('Solution') # Just set title, plot is handled in solve_puzzle
-        # Solution plot is updated in solve_puzzle function, no need to handle edges here
+        # Solution plot
+        if self.puzzle is not None:
+            self.ax[1, 1].set_title('Puzzle')
+            if self.visualizer is not None:
+                self.visualizer.draw(self.ax[1, 1])
+        else:
+            self.ax[1, 1].text(0.5, 0.5, "No solution yet",
+                            ha='center', va='center', fontsize=12)
+            self.ax[1, 1].set_title('Solution')
 
         # Update the display
         plt.tight_layout()
         plt.draw()
-        plt.pause(0.001)
+        plt.pause(0.001)  # Small pause to allow GUI to update
 
     def release(self):
         """Release resources"""

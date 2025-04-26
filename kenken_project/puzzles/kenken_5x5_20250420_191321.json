@@ -1,0 +1,252 @@
+{
+  "puzzle": {
+    "size": 5,
+    "cages": [
+      {
+        "cells": [
+          [
+            1,
+            2
+          ],
+          [
+            1,
+            1
+          ]
+        ],
+        "operation": "*",
+        "target": 12
+      },
+      {
+        "cells": [
+          [
+            2,
+            2
+          ]
+        ],
+        "operation": "*",
+        "target": 5
+      },
+      {
+        "cells": [
+          [
+            1,
+            0
+          ]
+        ],
+        "operation": "*",
+        "target": 1
+      },
+      {
+        "cells": [
+          [
+            2,
+            4
+          ],
+          [
+            1,
+            4
+          ]
+        ],
+        "operation": "*",
+        "target": 15
+      },
+      {
+        "cells": [
+          [
+            4,
+            1
+          ]
+        ],
+        "operation": "*",
+        "target": 5
+      },
+      {
+        "cells": [
+          [
+            4,
+            2
+          ]
+        ],
+        "operation": "*",
+        "target": 4
+      },
+      {
+        "cells": [
+          [
+            1,
+            3
+          ],
+          [
+            0,
+            3
+          ]
+        ],
+        "operation": "*",
+        "target": 8
+      },
+      {
+        "cells": [
+          [
+            0,
+            2
+          ]
+        ],
+        "operation": "*",
+        "target": 1
+      },
+      {
+        "cells": [
+          [
+            3,
+            0
+          ],
+          [
+            3,
+            1
+          ]
+        ],
+        "operation": "-",
+        "target": 2
+      },
+      {
+        "cells": [
+          [
+            0,
+            0
+          ]
+        ],
+        "operation": "*",
+        "target": 5
+      },
+      {
+        "cells": [
+          [
+            3,
+            3
+          ],
+          [
+            2,
+            3
+          ]
+        ],
+        "operation": "+",
+        "target": 6
+      },
+      {
+        "cells": [
+          [
+            0,
+            4
+          ]
+        ],
+        "operation": "*",
+        "target": 2
+      },
+      {
+        "cells": [
+          [
+            4,
+            4
+          ],
+          [
+            3,
+            4
+          ],
+          [
+            4,
+            3
+          ]
+        ],
+        "operation": "*",
+        "target": 12
+      },
+      {
+        "cells": [
+          [
+            4,
+            0
+          ]
+        ],
+        "operation": "*",
+        "target": 2
+      },
+      {
+        "cells": [
+          [
+            2,
+            1
+          ]
+        ],
+        "operation": "*",
+        "target": 2
+      },
+      {
+        "cells": [
+          [
+            2,
+            0
+          ]
+        ],
+        "operation": "*",
+        "target": 4
+      },
+      {
+        "cells": [
+          [
+            3,
+            2
+          ]
+        ],
+        "operation": "*",
+        "target": 2
+      },
+      {
+        "cells": [
+          [
+            0,
+            1
+          ]
+        ],
+        "operation": "*",
+        "target": 3
+      }
+    ]
+  },
+  "solution": [
+    [
+      5,
+      3,
+      1,
+      4,
+      2
+    ],
+    [
+      1,
+      4,
+      3,
+      2,
+      5
+    ],
+    [
+      4,
+      2,
+      5,
+      1,
+      3
+    ],
+    [
+      3,
+      1,
+      2,
+      5,
+      4
+    ],
+    [
+      2,
+      5,
+      4,
+      3,
+      1
+    ]
+  ]
+}
