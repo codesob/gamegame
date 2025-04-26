@@ -280,19 +280,29 @@ class Solver:
         self.puzzle.set_cell_value(row, col, 0)
         return result
 
-    def solve_backtracking(self, find_all=False) -> bool:
-        """Standard backtracking solver with forward checking."""
+    def solve_backtracking(self, find_all=False, depth=0, max_depth=1000, max_nodes=100000) -> bool:
+        """Standard backtracking solver with forward checking and limits."""
+        if depth > max_depth:
+            print(f"Backtracking: Max depth {max_depth} exceeded at depth {depth}. Backtracking.")
+            return False
+        if self.nodes_visited > max_nodes:
+            print(f"Backtracking: Max nodes {max_nodes} exceeded. Stopping search.")
+            return False
+
         next_cell = self.choose_next_variable_standard()
         if not next_cell:
             self.solution_count += 1
+            print(f"Solution found! Total solutions: {self.solution_count}")
             return True
 
         row, col = next_cell
         current_cage = self.puzzle.get_cage(row, col)
         domain = self.get_current_domain(row, col)
+        print(f"Backtracking: Trying cell ({row}, {col}) with domain {domain}")
         
         for num in domain:
             self.nodes_visited += 1
+            print(f"Backtracking: Trying value {num} at ({row}, {col}), nodes visited: {self.nodes_visited}")
             if self.is_safe(row, col, num) and self._forward_check(row, col, num):
                 self.puzzle.set_cell_value(row, col, num)
                 self._clear_domain_cache(row, col)
@@ -302,10 +312,11 @@ class Solver:
                     except InterruptedError: raise
 
                 if self._check_cage_constraint(current_cage if current_cage else None):
-                    if self.solve_backtracking(find_all):
+                    if self.solve_backtracking(find_all, depth + 1, max_depth, max_nodes):
                         if not find_all:
                             return True
 
+                print(f"Backtracking: Backtracking from value {num} at ({row}, {col})")
                 self.puzzle.set_cell_value(row, col, 0)
                 self._clear_domain_cache(row, col)
                 if self.update_callback:
@@ -314,11 +325,19 @@ class Solver:
 
         return self.solution_count > 0 if find_all else False
 
-    def solve_with_mrv(self, find_all=False) -> bool:
-        """Solver using MRV heuristic with forward checking."""
+    def solve_with_mrv(self, find_all=False, depth=0, max_depth=1000, max_nodes=100000) -> bool:
+        """Solver using MRV heuristic with forward checking and limits."""
+        if depth > max_depth:
+            print(f"MRV: Max depth {max_depth} exceeded at depth {depth}. Backtracking.")
+            return False
+        if self.nodes_visited > max_nodes:
+            print(f"MRV: Max nodes {max_nodes} exceeded. Stopping search.")
+            return False
+
         next_cell = self.choose_next_variable_mrv()
         if not next_cell:
             self.solution_count += 1
+            print(f"MRV: Solution found! Total solutions: {self.solution_count}")
             return True
 
         row, col = next_cell
@@ -327,9 +346,11 @@ class Solver:
 
         domain = self.get_current_domain(row, col)
         current_cage = self.puzzle.get_cage(row, col)
+        print(f"MRV: Trying cell ({row}, {col}) with domain {domain}")
         
         for num in domain:
             self.nodes_visited += 1
+            print(f"MRV: Trying value {num} at ({row}, {col}), nodes visited: {self.nodes_visited}")
             if self.is_safe(row, col, num) and self._forward_check(row, col, num):
                 self.puzzle.set_cell_value(row, col, num)
                 self._clear_domain_cache(row, col)
@@ -339,10 +360,11 @@ class Solver:
                     except InterruptedError: raise
 
                 if self._check_cage_constraint(current_cage if current_cage else None):
-                    if self.solve_with_mrv(find_all):
+                    if self.solve_with_mrv(find_all, depth + 1, max_depth, max_nodes):
                         if not find_all:
                             return True
 
+                print(f"MRV: Backtracking from value {num} at ({row}, {col})")
                 self.puzzle.set_cell_value(row, col, 0)
                 self._clear_domain_cache(row, col)
                 if self.update_callback:
@@ -351,15 +373,24 @@ class Solver:
 
         return self.solution_count > 0 if find_all else False
 
-    def solve_with_lcv(self, find_all=False) -> bool:
-        """Solver using only LCV heuristic for value ordering with standard variable selection."""
+    def solve_with_lcv(self, find_all=False, depth=0, max_depth=1000, max_nodes=100000) -> bool:
+        """Solver using only LCV heuristic for value ordering with standard variable selection and limits."""
+        if depth > max_depth:
+            print(f"LCV: Max depth {max_depth} exceeded at depth {depth}. Backtracking.")
+            return False
+        if self.nodes_visited > max_nodes:
+            print(f"LCV: Max nodes {max_nodes} exceeded. Stopping search.")
+            return False
+
         next_cell = self.choose_next_variable_standard()  # Standard selection
         if not next_cell:
             # Verify all cage constraints are satisfied
             for cage in self.puzzle.cages:
                 if not self._check_cage_constraint(cage):
+                    print("LCV: Cage constraint failed at solution check.")
                     return False
             self.solution_count += 1
+            print(f"LCV: Solution found! Total solutions: {self.solution_count}")
             return True
 
         row, col = next_cell
@@ -367,8 +398,10 @@ class Solver:
             self.current_move_number += 1
 
         ordered_values = self.get_lcv_ordered_values(row, col)  # LCV ordering
+        print(f"LCV: Trying cell ({row}, {col}) with ordered values {ordered_values}")
         for num in ordered_values:
             self.nodes_visited += 1
+            print(f"LCV: Trying value {num} at ({row}, {col}), nodes visited: {self.nodes_visited}")
             self.puzzle.set_cell_value(row, col, num)
             self._clear_domain_cache(row, col)
 
@@ -388,10 +421,11 @@ class Solver:
                 )
                 self.move_data.append(move)
 
-            if self.solve_with_lcv(find_all):
+            if self.solve_with_lcv(find_all, depth + 1, max_depth, max_nodes):
                 if not find_all:
                     return True
 
+            print(f"LCV: Backtracking from value {num} at ({row}, {col})")
             self.puzzle.set_cell_value(row, col, 0)
             self._clear_domain_cache(row, col)
 
@@ -400,6 +434,7 @@ class Solver:
     def solve_with_heuristics(self, find_all=False, depth=0, max_depth=1000) -> bool:
         """Solver using both MRV for variable selection and LCV for value ordering."""
         if depth > max_depth:
+            print(f"Heuristics: Max depth {max_depth} exceeded at depth {depth}. Backtracking.")
             return False
 
         next_cell = self.choose_next_variable_mrv()
@@ -407,15 +442,19 @@ class Solver:
             # Verify all cage constraints are satisfied
             for cage in self.puzzle.cages:
                 if not self._check_cage_constraint(cage):
+                    print("Heuristics: Cage constraint failed at solution check.")
                     return False
             self.solution_count += 1
+            print(f"Heuristics: Solution found! Total solutions: {self.solution_count}")
             return True
 
         row, col = next_cell
         ordered_values = self.get_lcv_ordered_values(row, col)
+        print(f"Heuristics: Trying cell ({row}, {col}) with ordered values {ordered_values}")
         
         for num in ordered_values:
             self.nodes_visited += 1
+            print(f"Heuristics: Trying value {num} at ({row}, {col}), nodes visited: {self.nodes_visited}")
             if self.is_safe(row, col, num):
                 self.puzzle.set_cell_value(row, col, num)
                 self._clear_domain_cache(row, col)
@@ -431,6 +470,7 @@ class Solver:
                 if cage_constraint_ok and self.solve_with_heuristics(find_all, depth + 1, max_depth):
                     return True if not find_all else self.solution_count > 0
                 
+                print(f"Heuristics: Backtracking from value {num} at ({row}, {col})")
                 self.puzzle.set_cell_value(row, col, 0)
                 self._clear_domain_cache(row, col)
 
@@ -439,3 +479,66 @@ class Solver:
     def get_solution(self) -> List[List[int]]:
         """Retrieve the current state of the puzzle grid as the solution."""
         return self.puzzle.get_grid_copy()
+
+    def validate_solution(self, solution_grid: List[List[int]]) -> bool:
+        """
+        Validate a given solution grid against the puzzle constraints:
+        - Each row contains unique numbers 1..size
+        - Each column contains unique numbers 1..size
+        - Each cage satisfies its operation and target
+        """
+        size = self.size
+
+        # Check rows for uniqueness and valid values
+        for r in range(size):
+            row_values = solution_grid[r]
+            if sorted(row_values) != list(range(1, size + 1)):
+                print(f"Validation failed: Row {r} has invalid or duplicate values: {row_values}")
+                return False
+
+        # Check columns for uniqueness and valid values
+        for c in range(size):
+            col_values = [solution_grid[r][c] for r in range(size)]
+            if sorted(col_values) != list(range(1, size + 1)):
+                print(f"Validation failed: Column {c} has invalid or duplicate values: {col_values}")
+                return False
+
+        # Check cages constraints
+        for cage in self.puzzle.cages:
+            cage_values = [solution_grid[r][c] for r, c in cage.cells]
+            if not cage.check(cage_values):
+                print(f"Validation failed: Cage {cage} constraint not satisfied with values {cage_values}")
+                return False
+
+        # All checks passed
+        print("Validation succeeded: Solution satisfies all constraints.")
+        return True
+
+    def validate_solution_detailed(self, solution_grid: List[List[int]]) -> (bool, list):
+        """
+        Validate a given solution grid against the puzzle constraints.
+        Returns a tuple (is_valid, error_messages).
+        """
+        size = self.size
+        errors = []
+
+        # Check rows for uniqueness and valid values
+        for r in range(size):
+            row_values = solution_grid[r]
+            if sorted(row_values) != list(range(1, size + 1)):
+                errors.append(f"Row {r} has invalid or duplicate values: {row_values}")
+
+        # Check columns for uniqueness and valid values
+        for c in range(size):
+            col_values = [solution_grid[r][c] for r in range(size)]
+            if sorted(col_values) != list(range(1, size + 1)):
+                errors.append(f"Column {c} has invalid or duplicate values: {col_values}")
+
+        # Check cages constraints
+        for cage in self.puzzle.cages:
+            cage_values = [solution_grid[r][c] for r, c in cage.cells]
+            if not cage.check(cage_values):
+                errors.append(f"Cage {cage} constraint not satisfied with values {cage_values}")
+
+        is_valid = len(errors) == 0
+        return is_valid, errors

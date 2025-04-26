@@ -36,7 +36,8 @@ def partition_into_cages(grid):
         cage = [start]
         visited.add(start)
 
-        cage_size = random.choices([1, 2, 3, 4], weights=[40, 35, 20, 5])[0]
+        # Increase cage sizes for more complexity: favor larger cages
+        cage_size = random.choices([1, 2, 3, 4, 5], weights=[20, 25, 25, 20, 10])[0]
         for _ in range(cage_size - 1):
             neighbors = [nbr for cell in cage for nbr in get_neighbors(cell, n) if nbr not in visited]
             if not neighbors:
@@ -63,35 +64,48 @@ def compute_target_and_operator(cage, grid):
     values = [grid[r][c] for r, c in cage]
     
     if len(cage) == 1:
-        # For single cells, use multiplication by 1
+        # For single cells, just return the value without scaling
         return values[0], '*'
     
     if len(cage) == 2:
         a, b = max(values), min(values)  # Ensure consistent order
         ops = []
-        if a + b <= 100: 
-            ops.append(('+', a + b))
+        # Use actual sum without scaling
+        ops.append(('+', a + b))
         if a - b > 0:
             ops.append(('-', a - b))
-        if a * b <= 100:
-            ops.append(('*', a * b))
+        # Use actual product without scaling
+        ops.append(('*', a * b))
         if a % b == 0:
             ops.append(('/', a // b))
         if not ops:
-            return a + b, '+'  # Fallback to addition
+            return a + b, '+'  # Fallback to addition without scaling
         op, target = random.choice(ops)
         return target, op
         
-    # For 3+ cells, use only + or *
-    if random.random() < 0.5:
-        return sum(values), '+'
-    else:
-        product = 1
-        for v in values:
-            product *= v
-        if product > 100:  # If product is too large, fall back to addition
+    # For 3+ cells, use + or * only without scaling
+    if len(cage) >= 3:
+        if random.random() < 0.5:
+            # Use sum without scaling
             return sum(values), '+'
-        return product, '*'
+        else:
+            product = 1
+            for v in values:
+                product *= v
+            if product > 200:  # If product is too large, fall back to addition
+                return sum(values), '+'
+            return product, '*'
+    else:
+        # For 2 cells, occasionally use subtraction or division for complexity
+        a, b = max(values), min(values)
+        if len(cage) == 2:
+            if a % b == 0 and b != 0 and random.random() < 0.5:
+                return int(a // b), '/'
+            else:
+                return a - b, '-'
+        else:
+            # For single cell cages, just return value without scaling
+            return values[0], '*'
 
 def generate_kenken(n=5):
     """Generate a KenKen puzzle with string operations."""

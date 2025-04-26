@@ -100,10 +100,10 @@ def main_window():
     def open_solve_window():
         solve_window = tk.Toplevel(root)
         solve_window.title("Solve KenKen Puzzle")
-        center_window(solve_window, 500, 350)
+        center_window(solve_window, 500, 400)
         solve_window.configure(bg="lightyellow")
 
-        tk.Label(solve_window, text="Select Puzzle Size", font=("Arial", 20), bg="lightyellow").pack(pady=20)
+        tk.Label(solve_window, text="Select Puzzle Size", font=("Arial", 20), bg="lightyellow").pack(pady=10)
 
         # Add a scrollable frame for the buttons
         canvas = tk.Canvas(solve_window, bg="lightyellow")
@@ -123,6 +123,99 @@ def main_window():
 
         for size in range(3, 10):
             tk.Button(scrollable_frame, text=f"{size}x{size}", font=("Arial", 16), command=lambda s=size: open_size_window(s), bg="lightblue", width=10, height=2).pack(pady=5)
+
+        # Add button for supervised solvers
+        tk.Button(solve_window, text="Supervised Solvers", font=("Arial", 16, "bold"), bg="orange", fg="black", command=open_supervised_solver_window).pack(pady=10)
+
+    def open_supervised_solver_window():
+        sup_window = tk.Toplevel(root)
+        sup_window.title("Supervised Solvers")
+        center_window(sup_window, 600, 500)
+        sup_window.configure(bg="lightcyan")
+
+        tk.Label(sup_window, text="Supervised Solvers", font=("Arial", 24, "bold"), bg="lightcyan").pack(pady=20)
+
+        # Dropdown to select puzzle size
+        tk.Label(sup_window, text="Select Puzzle Size:", font=("Arial", 16), bg="lightcyan").pack(pady=5)
+        puzzle_sizes = list(range(3, 10))
+        selected_size = tk.IntVar(sup_window)
+        selected_size.set(puzzle_sizes[0])
+        size_menu = tk.OptionMenu(sup_window, selected_size, *puzzle_sizes)
+        size_menu.pack(pady=5)
+
+        # Dropdown to select solver type
+        tk.Label(sup_window, text="Select Solver Type:", font=("Arial", 16), bg="lightcyan").pack(pady=5)
+        solver_types = ["Decision Tree", "Random Forest", "KMeans"]
+        selected_solver = tk.StringVar(sup_window)
+        selected_solver.set(solver_types[0])
+        solver_menu = tk.OptionMenu(sup_window, selected_solver, *solver_types)
+        solver_menu.pack(pady=5)
+
+        # Dropdown to select puzzle file
+        tk.Label(sup_window, text="Select Puzzle File:", font=("Arial", 16), bg="lightcyan").pack(pady=5)
+        puzzle_files = [f for f in os.listdir(str(PUZZLES_DIR)) if f.endswith(".json")]
+        selected_puzzle_file = tk.StringVar(sup_window)
+        if puzzle_files:
+            selected_puzzle_file.set(puzzle_files[0])
+        else:
+            selected_puzzle_file.set("No puzzles found")
+        puzzle_file_menu = tk.OptionMenu(sup_window, selected_puzzle_file, *puzzle_files)
+        puzzle_file_menu.pack(pady=5)
+
+        result_text = tk.Text(sup_window, height=10, width=60)
+        result_text.pack(pady=10)
+
+        def run_supervised_solver():
+            import time
+            puzzle_file = selected_puzzle_file.get()
+            solver_type = selected_solver.get()
+            size = selected_size.get()
+
+            if puzzle_file == "No puzzles found":
+                messagebox.showerror("Error", "No puzzle files found in puzzles directory.")
+                return
+
+            puzzle_path = os.path.join(str(PUZZLES_DIR), puzzle_file)
+            try:
+                puzzle, solution = load_puzzle_from_file(puzzle_path)
+                from src.supervised_solver import SupervisedSolver
+
+                solver = SupervisedSolver(puzzle, solution_grid=solution)
+
+                start_time = time.time()
+                if solver_type == "Decision Tree":
+                    solver.train_decision_tree()
+                elif solver_type == "Random Forest":
+                    solver.train_random_forest()
+                elif solver_type == "KMeans":
+                    solver.train_kmeans(n_clusters=puzzle.size)
+                else:
+                    messagebox.showerror("Error", f"Unknown solver type: {solver_type}")
+                    return
+                solved = solver.solve()
+                end_time = time.time()
+                elapsed_time = end_time - start_time
+
+                # Calculate accuracy
+                accuracy = None
+                if solution:
+                    accuracy = solved == solution
+
+                # Display results
+                result_text.delete(1.0, tk.END)
+                result_text.insert(tk.END, f"Solver: {solver_type}\n")
+                result_text.insert(tk.END, f"Puzzle Size: {size}x{size}\n")
+                result_text.insert(tk.END, f"Time Taken: {elapsed_time:.4f} seconds\n")
+                if accuracy is not None:
+                    result_text.insert(tk.END, f"Matches solution: {accuracy}\n")
+                result_text.insert(tk.END, "Solved Grid:\n")
+                for row in solved:
+                    result_text.insert(tk.END, " ".join(str(val) for val in row) + "\n")
+
+            except Exception as e:
+                messagebox.showerror("Error", str(e))
+
+        tk.Button(sup_window, text="Run Solver", font=("Arial", 16), bg="green", fg="white", command=run_supervised_solver).pack(pady=10)
 
     def open_size_window(size):
         """Open a new window for the selected puzzle size."""
@@ -148,6 +241,7 @@ def main_window():
         tk.OptionMenu(size_window, selected_algorithm, *algorithms).pack(pady=10)
 
         def solve_puzzle():
+            import time
             puzzle_file = selected_puzzle.get()
             algorithm = selected_algorithm.get()
 
@@ -160,8 +254,16 @@ def main_window():
                 puzzle, _ = load_puzzle_from_file(puzzle_path)
                 process_viz = ProcessVisualizer(puzzle)  # Ensure process_viz is initialized here
                 solver = Solver(puzzle, update_callback=process_viz.update)
+
+                start_time = time.time()
                 success, metrics = process_viz.start(solver, algorithm)
-                messagebox.showinfo("Result", f"Solved: {success}\nMetrics: {metrics}\nNodes Visited: {metrics['nodes_visited']}\nTime Taken: {metrics['time_seconds']:.2f} seconds")
+                end_time = time.time()
+                elapsed_time = end_time - start_time
+
+                # Add elapsed time to metrics for display
+                metrics['elapsed_time'] = elapsed_time
+
+                messagebox.showinfo("Result", f"Solved: {success}\nMetrics: {metrics}\nNodes Visited: {metrics.get('nodes_visited', 'N/A')}\nTime Taken: {elapsed_time:.2f} seconds")
             except Exception as e:
                 messagebox.showerror("Error", str(e))
 
@@ -363,7 +465,17 @@ def main_window():
                 validate_button = tk.Button(content_frame, text="Validate Solution", 
                                           font=("Arial", 16), command=validate_solution,
                                           bg="green", fg="white")
-                validate_button.pack(pady=20)
+                validate_button.pack(pady=10, side=tk.LEFT, padx=10)
+
+                def clear_entries():
+                    for r in range(size):
+                        for c in range(size):
+                            entries[r][c].delete(0, tk.END)
+                            entries[r][c].config(bg="white")
+
+                clear_button = tk.Button(content_frame, text="Clear", font=("Arial", 16),
+                                         command=clear_entries, bg="red", fg="white")
+                clear_button.pack(pady=10, side=tk.LEFT, padx=10)
 
                 # Update scroll region after adding all widgets
                 content_frame.update_idletasks()

@@ -51,7 +51,7 @@ class Puzzle:
         for i, c_data in enumerate(cages_data):
             try:
                 cells = [tuple(cell) for cell in c_data['cells']]
-                cage = Cage(c_data['operation'], c_data.get('value', c_data.get('target')), cells)
+                cage = Cage(c_data['operation'], c_data['value'], cells)
                 cages.append(cage)
             except KeyError as e:
                 raise ValueError(f"Missing key {e} in cage definition #{i+1}: {c_data}")
@@ -64,7 +64,7 @@ class Puzzle:
     def from_dict(cls, data):
         """Create a Puzzle object from a dictionary."""
         size = data.get("size")
-        cages = [Cage(cage['operation'], cage.get('value', cage.get('target')), [tuple(cell) for cell in cage['cells']]) for cage in data.get("cages", [])]
+        cages = [Cage(cage['operation'], cage['value'], [tuple(cell) for cell in cage['cells']]) for cage in data.get("cages", [])]
         return cls(size=size, cages=cages)
 
     def get_cage(self, row: int, col: int) -> Optional[Cage]:
