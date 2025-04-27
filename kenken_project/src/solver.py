@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Optional, Tuple, List, Callable, Set, Dict
 from .puzzle import Puzzle
 from .cage import Cage
+from .supervised_solver import SupervisedSolver
 
 @dataclass
 class MoveData:
@@ -220,6 +221,8 @@ class Solver:
             success = self.solve_with_mrv(find_all)
         elif method == 'lcv':
             success = self.solve_with_lcv(find_all)
+        elif method == 'supervised_mrv_lcv':
+            success = self.solve_with_supervised_mrv_lcv(find_all)
         else:  # heuristics
             success = self.solve_with_heuristics(find_all)
             
@@ -479,6 +482,74 @@ class Solver:
     def get_solution(self) -> List[List[int]]:
         """Retrieve the current state of the puzzle grid as the solution."""
         return self.puzzle.get_grid_copy()
+
+    def solve_with_supervised_mrv_lcv(self, find_all=False, depth=0, max_depth=None, max_nodes=None, supervised_solver=None) -> bool:
+        """
+        Solver combining supervised predictions with MRV for variable selection and LCV for value ordering.
+        """
+        if max_depth is not None and depth > max_depth:
+            return False
+        if max_nodes is not None and self.nodes_visited > max_nodes:
+            return False
+
+        # Train supervised solver once before recursion
+        if supervised_solver is None:
+            supervised_solver = SupervisedSolver(self.puzzle)
+            supervised_solver.train_decision_tree()
+
+        next_cell = self.choose_next_variable_mrv()
+        if not next_cell:
+            # Verify all cage constraints are satisfied
+            for cage in self.puzzle.cages:
+                if not self._check_cage_constraint(cage):
+                    return False
+            self.solution_count += 1
+            return True
+
+        row, col = next_cell
+
+        # Get domain values ordered by supervised prediction confidence or value
+        domain = self.get_current_domain(row, col)
+        if not domain:
+            return False
+
+        # Predict values for the cell using supervised solver
+        try:
+            predicted_value = supervised_solver.predict(row, col)
+        except Exception:
+            predicted_value = None
+
+        # Order domain values: put predicted value first if valid
+        if predicted_value in domain:
+            ordered_values = [predicted_value] + [v for v in domain if v != predicted_value]
+        else:
+            ordered_values = domain
+
+        # Further order by LCV heuristic
+        lcv_ordered = self.get_lcv_ordered_values(row, col)
+        # Merge orders: keep predicted value first, then LCV order for rest
+        ordered_values = [v for v in ordered_values if v == predicted_value] + [v for v in lcv_ordered if v != predicted_value]
+
+        for num in ordered_values:
+            self.nodes_visited += 1
+            if self.is_safe(row, col, num):
+                self.puzzle.set_cell_value(row, col, num)
+                self._clear_domain_cache(row, col)
+
+                current_cage = self.puzzle.get_cage(row, col)
+                cage_constraint_ok = True
+                if current_cage:
+                    cage_values = self.puzzle.get_cage_values(current_cage)
+                    if 0 not in cage_values and not self._check_cage_constraint(current_cage):
+                        cage_constraint_ok = False
+
+                if cage_constraint_ok and self.solve_with_supervised_mrv_lcv(find_all, depth + 1, max_depth, max_nodes, supervised_solver):
+                    return True if not find_all else self.solution_count > 0
+
+                self.puzzle.set_cell_value(row, col, 0)
+                self._clear_domain_cache(row, col)
+
+        return False
 
     def validate_solution(self, solution_grid: List[List[int]]) -> bool:
         """

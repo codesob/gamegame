@@ -234,7 +234,7 @@ def main_window():
         tk.OptionMenu(size_window, selected_puzzle, *puzzle_files).pack(pady=10)
 
         # Dropdown to select solving algorithm
-        algorithms = ["backtracking", "mrv", "lcv", "heuristics"]
+        algorithms = ["backtracking", "mrv", "lcv", "heuristics", "supervised_mrv_lcv"]
         selected_algorithm = tk.StringVar(size_window)
         selected_algorithm.set("Select an algorithm")
 
