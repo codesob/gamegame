@@ -1,0 +1,96 @@
+{
+  "puzzle": {
+    "size": 3,
+    "cages": [
+      {
+        "cells": [
+          [
+            2,
+            0
+          ]
+        ],
+        "operation": "*",
+        "target": 3
+      },
+      {
+        "cells": [
+          [
+            2,
+            1
+          ]
+        ],
+        "operation": "*",
+        "target": 2
+      },
+      {
+        "cells": [
+          [
+            1,
+            0
+          ]
+        ],
+        "operation": "*",
+        "target": 2
+      },
+      {
+        "cells": [
+          [
+            1,
+            2
+          ],
+          [
+            0,
+            2
+          ]
+        ],
+        "operation": "+",
+        "target": 5
+      },
+      {
+        "cells": [
+          [
+            1,
+            1
+          ],
+          [
+            0,
+            1
+          ],
+          [
+            0,
+            0
+          ]
+        ],
+        "operation": "+",
+        "target": 5
+      },
+      {
+        "cells": [
+          [
+            2,
+            2
+          ]
+        ],
+        "operation": "*",
+        "target": 1
+      }
+    ]
+  },
+  "solution": [
+    [
+      1,
+      3,
+      2
+    ],
+    [
+      2,
+      1,
+      3
+    ],
+    [
+      3,
+      2,
+      1
+    ]
+  ]
+}
