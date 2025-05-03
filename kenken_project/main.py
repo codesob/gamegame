@@ -8,7 +8,6 @@ from src.visualizer import KenKenRenderer, ProcessVisualizer
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import os
-from pathlib import Path
 from src.generator import generate_kenken, save_puzzle
 
 PUZZLES_DIR = Path(__file__).parent / "puzzles"

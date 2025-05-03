@@ -262,19 +262,30 @@ class KenKenRenderer:
         pygame.display.set_caption(f"KenKen Solver - {message} ({solving_method})")
         self.wait_for_close(message)
 
-    def wait_for_close(self, message="Solver finished. Close the window to exit."):
-        """Keeps the window open after solving until the user closes it."""
+    def wait_for_close(self, message="Solver finished. Close the window to exit.", auto_close=False, auto_close_time=5):
+        """Keeps the window open after solving until the user closes it or auto closes after timeout."""
         font = pygame.font.Font(None, 36)
         text_surface = font.render(message, True, self.BLACK)
         text_rect = text_surface.get_rect(center=(self.width // 2, self.height - 20))
         self.screen.blit(text_surface, text_rect)
         pygame.display.flip()
 
-        running = True
-        while running:
-            running = self.handle_events(lambda: None)
-            self.clock.tick(30)  # Keep CPU usage reasonable while waiting
-            pygame.display.flip()  # Keep window responsive
+        if auto_close:
+            start_ticks = pygame.time.get_ticks()
+            running = True
+            while running:
+                running = self.handle_events(lambda: None)
+                self.clock.tick(30)  # Keep CPU usage reasonable while waiting
+                pygame.display.flip()  # Keep window responsive
+                seconds_passed = (pygame.time.get_ticks() - start_ticks) / 1000
+                if seconds_passed >= auto_close_time:
+                    running = False
+        else:
+            running = True
+            while running:
+                running = self.handle_events(lambda: None)
+                self.clock.tick(30)  # Keep CPU usage reasonable while waiting
+                pygame.display.flip()  # Keep window responsive
 
     def quit(self):
         """Cleans up Pygame."""
@@ -721,6 +732,8 @@ class KenKenVisualizer:
             message = f"LCV: Trying value {value} (constrains {degree} neighbors least)"
         elif method == "heuristics":
             message = f"MRV+LCV: Cell ({row+1},{col+1}) with domain {domain_size}, trying {value} (constrains {degree})"
+        elif method == f"supervised_mrv_lcv":
+            message = f"Supervised MRV+LCV: Cell ({row+1},{col+1}) with domain {domain_size}, trying {value} (constrains {degree})"
         else:  # backtracking
             message = f"Trying {value} at ({row+1},{col+1})" if value != 0 else f"Backtracking at ({row+1},{col+1})"
 
@@ -728,11 +741,11 @@ class KenKenVisualizer:
         self.show_message(message)
         pygame.display.flip()
 
-    def finish_visualization(self, success, solving_method="", nodes_visited=0):
+    def finish_visualization(self, success, solving_method="", nodes_visited=0, auto_close=False, auto_close_time=5):
         """Show final state and print solution with statistics."""
         message = "Solved successfully! Close window to exit." if success else "No solution found. Close window to exit."
         self.draw_all(message)
-        self.wait_for_close()
+        self.wait_for_close(auto_close=auto_close, auto_close_time=auto_close_time)
 
     def draw(self, ax, title=None):
         """Draw the puzzle state on a matplotlib axis."""

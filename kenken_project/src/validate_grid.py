@@ -1,4 +1,3 @@
-import sys
 import json
 from src.puzzle import Puzzle
 from src.solver import Solver

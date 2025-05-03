@@ -311,8 +311,12 @@ class Solver:
                 self._clear_domain_cache(row, col)
                 
                 if self.update_callback:
-                    try: self.update_callback(row, col, num)
-                    except InterruptedError: raise
+                    try:
+                        self.update_callback(row, col, num)
+                    except InterruptedError:
+                        raise
+                    except Exception as e:
+                        print(f"Warning: Exception in update_callback: {e}")
 
                 if self._check_cage_constraint(current_cage if current_cage else None):
                     if self.solve_backtracking(find_all, depth + 1, max_depth, max_nodes):
@@ -323,8 +327,12 @@ class Solver:
                 self.puzzle.set_cell_value(row, col, 0)
                 self._clear_domain_cache(row, col)
                 if self.update_callback:
-                    try: self.update_callback(row, col, 0)
-                    except InterruptedError: raise
+                    try:
+                        self.update_callback(row, col, 0)
+                    except InterruptedError:
+                        raise
+                    except Exception as e:
+                        print(f"Warning: Exception in update_callback: {e}")
 
         return self.solution_count > 0 if find_all else False
 
@@ -585,7 +593,7 @@ class Solver:
         print("Validation succeeded: Solution satisfies all constraints.")
         return True
 
-    def validate_solution_detailed(self, solution_grid: List[List[int]]) -> (bool, list):
+    def validate_solution_detailed(self, solution_grid: List[List[int]]) -> Tuple[bool, list]:
         """
         Validate a given solution grid against the puzzle constraints.
         Returns a tuple (is_valid, error_messages).
