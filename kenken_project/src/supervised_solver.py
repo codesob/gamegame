@@ -4,6 +4,8 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.cluster import KMeans
 from .puzzle import Puzzle
 
+from .utils import calculate_accuracy
+
 class SupervisedSolver:
     def __init__(self, puzzle: Puzzle, solution_grid=None):
         self.puzzle = puzzle
@@ -76,3 +78,13 @@ class SupervisedSolver:
         else:
             print("SupervisedSolver: Predicted solution is invalid.")
         return is_valid
+
+    def calculate_accuracy(self):
+        """
+        Calculate accuracy of the model predictions against the true solution grid.
+        Returns accuracy as a float between 0 and 1.
+        """
+        if self.solution_grid is None:
+            raise ValueError("No solution grid provided for accuracy calculation.")
+        predicted_grid = self.solve()
+        return calculate_accuracy(self.solution_grid, predicted_grid)

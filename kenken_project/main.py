@@ -178,6 +178,9 @@ def main_window():
             try:
                 puzzle, solution = load_puzzle_from_file(puzzle_path)
                 from src.supervised_solver import SupervisedSolver
+                from src.accuracy_recorder import AccuracyRecorder
+
+                accuracy_recorder = AccuracyRecorder()
 
                 solver = SupervisedSolver(puzzle, solution_grid=solution)
 
@@ -198,7 +201,12 @@ def main_window():
                 # Calculate accuracy
                 accuracy = None
                 if solution:
-                    accuracy = solved == solution
+                    from src.utils import calculate_accuracy
+                    accuracy = calculate_accuracy(solution, solved)
+                # Record accuracy
+                print(f"Recording supervised solver accuracy: solver_type={solver_type}, size={size}, accuracy={accuracy}, elapsed_time={elapsed_time}")
+                accuracy_recorder.record(solver_type, size, puzzle_file=puzzle_file, accuracy=accuracy, elapsed_time=elapsed_time)
+
 
                 # Display results
                 result_text.delete(1.0, tk.END)
@@ -206,7 +214,7 @@ def main_window():
                 result_text.insert(tk.END, f"Puzzle Size: {size}x{size}\n")
                 result_text.insert(tk.END, f"Time Taken: {elapsed_time:.4f} seconds\n")
                 if accuracy is not None:
-                    result_text.insert(tk.END, f"Matches solution: {accuracy}\n")
+                    result_text.insert(tk.END, f"Accuracy: {accuracy:.4f}\n")
                 result_text.insert(tk.END, "Solved Grid:\n")
                 for row in solved:
                     result_text.insert(tk.END, " ".join(str(val) for val in row) + "\n")
@@ -250,7 +258,11 @@ def main_window():
 
             puzzle_path = os.path.join(str(PUZZLES_DIR), puzzle_file)
             try:
-                puzzle, _ = load_puzzle_from_file(puzzle_path)
+                puzzle, solution = load_puzzle_from_file(puzzle_path)
+                from src.accuracy_recorder import AccuracyRecorder
+
+                accuracy_recorder = AccuracyRecorder()
+
                 process_viz = ProcessVisualizer(puzzle)  # Ensure process_viz is initialized here
                 solver = Solver(puzzle, update_callback=process_viz.update)
 
@@ -262,7 +274,24 @@ def main_window():
                 # Add elapsed time to metrics for display
                 metrics['elapsed_time'] = elapsed_time
 
-                messagebox.showinfo("Result", f"Solved: {success}\nMetrics: {metrics}\nNodes Visited: {metrics.get('nodes_visited', 'N/A')}\nTime Taken: {elapsed_time:.2f} seconds")
+                # Calculate accuracy if solution is available
+                accuracy = None
+                if solution and success:
+                    solved_grid = solver.get_solution()
+                    from src.utils import calculate_accuracy
+                    accuracy = calculate_accuracy(solution, solved_grid)
+                # Record accuracy
+                nodes_visited = metrics.get('nodes_visited') if metrics else None
+                elapsed_time_corrected = metrics.get('time_seconds', elapsed_time)
+                print(f"Recording CSP accuracy: algorithm={algorithm}, size={puzzle.size}, accuracy={accuracy}, elapsed_time={elapsed_time_corrected}, nodes_visited={nodes_visited}")
+                accuracy_recorder.record(algorithm, puzzle.size, puzzle_file=os.path.basename(puzzle_path), accuracy=accuracy, elapsed_time=elapsed_time_corrected, nodes_visited=nodes_visited)
+
+
+                info_message = f"Solved: {success}\nMetrics: {metrics}\nNodes Visited: {metrics.get('nodes_visited', 'N/A')}\nTime Taken: {elapsed_time:.2f} seconds"
+                if accuracy is not None:
+                    info_message += f"\nAccuracy: {accuracy:.4f}"
+
+                messagebox.showinfo("Result", info_message)
             except Exception as e:
                 messagebox.showerror("Error", str(e))
 
@@ -436,6 +465,10 @@ def main_window():
                     canvas.create_text(x, y, text=operation_text, 
                                      anchor="nw", font=("Arial", font_size, "bold"))
 
+                # Add a label to show validation messages inline
+                validation_message_label = tk.Label(content_frame, text="", font=("Arial", 14), bg="lightgray", fg="red")
+                validation_message_label.pack(pady=5)
+
                 def validate_solution():
                     user_solution = []
                     for r in range(size):
@@ -443,23 +476,21 @@ def main_window():
                         for c in range(size):
                             value = entries[r][c].get()
                             if not value:
-                                messagebox.showerror("Error", "Please fill in all cells.")
+                                validation_message_label.config(text="Please fill in all cells.", fg="red")
                                 return
                             if not value.isdigit():
-                                messagebox.showerror("Error", 
-                                                  f"Invalid input at cell ({r+1}, {c+1})")
+                                validation_message_label.config(text=f"Invalid input at cell ({r+1}, {c+1})", fg="red")
                                 return
                             row.append(int(value))
                         user_solution.append(row)
 
                     if user_solution == solution:
-                        messagebox.showinfo("Success", 
-                                          "Congratulations! Your solution is correct!")
+                        validation_message_label.config(text="Congratulations! Your solution is correct!", fg="green")
                         for r in range(size):
                             for c in range(size):
                                 entries[r][c].config(bg="lightgreen")
                     else:
-                        messagebox.showerror("Error", "Incorrect solution. Please try again.")
+                        validation_message_label.config(text="Incorrect solution. Please try again.", fg="red")
 
                 validate_button = tk.Button(content_frame, text="Validate Solution", 
                                           font=("Arial", 16), command=validate_solution,

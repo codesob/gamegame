@@ -6,6 +6,8 @@ import unittest
 import json
 from src.puzzle import Puzzle
 from src.supervised_solver import SupervisedSolver
+from src.accuracy_recorder import AccuracyRecorder
+from src.utils import calculate_accuracy
 
 
 class TestSupervisedSolver(unittest.TestCase):
@@ -16,6 +18,7 @@ class TestSupervisedSolver(unittest.TestCase):
             "kenken_4x4_20250420_191233.json",
             "kenken_5x5_20250420_191321.json"
         ]
+        self.accuracy_recorder = AccuracyRecorder()
 
     def load_puzzle_and_solution(self, filename):
         filepath = os.path.join(self.puzzles_dir, filename)
@@ -38,6 +41,9 @@ class TestSupervisedSolver(unittest.TestCase):
                 for row in solved:
                     for val in row:
                         self.assertTrue(0 <= val <= puzzle.size)
+                if solution:
+                    accuracy = calculate_accuracy(solution, solved)
+                    self.accuracy_recorder.record("Decision Tree", puzzle.size, accuracy)
 
     def test_random_forest_on_real_puzzles(self):
         for filename in self.puzzle_files:
@@ -51,6 +57,9 @@ class TestSupervisedSolver(unittest.TestCase):
                 for row in solved:
                     for val in row:
                         self.assertTrue(0 <= val <= puzzle.size)
+                if solution:
+                    accuracy = calculate_accuracy(solution, solved)
+                    self.accuracy_recorder.record("Random Forest", puzzle.size, accuracy)
 
     def test_kmeans_on_real_puzzles(self):
         for filename in self.puzzle_files:
@@ -64,6 +73,9 @@ class TestSupervisedSolver(unittest.TestCase):
                 for row in solved:
                     for val in row:
                         self.assertTrue(0 <= val < puzzle.size)
+                if solution:
+                    accuracy = calculate_accuracy(solution, solved)
+                    self.accuracy_recorder.record("KMeans", puzzle.size, accuracy)
 
 if __name__ == "__main__":
     unittest.main()
