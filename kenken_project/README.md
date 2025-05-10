@@ -1,69 +1,129 @@
-# KenKen Puzzle Solver
+# KenKen Puzzle Solver and Generator
 
-This project implements solvers for KenKen puzzles with Pygame visualization.
+## Overview
+
+This project is a comprehensive KenKen puzzle application designed to generate, solve, and allow manual play of KenKen puzzles. KenKen is a mathematical and logical puzzle similar to Sudoku, where players fill a grid with numbers while satisfying arithmetic constraints in outlined cages.
+
+The application features a user-friendly graphical interface built with Tkinter, supports multiple solving algorithms including classical constraint satisfaction methods and supervised machine learning models, and provides tools for puzzle generation and visualization.
 
 ## Features
 
-*   Loads puzzles from JSON files (see `puzzles/README.md` for format).
-*   Basic backtracking solver implemented.
-*   Optional Pygame visualization of the solving process.
-*   Displays puzzle grid and cages.
-*   Computer vision capabilities for puzzle recognition (requires Tesseract OCR).
-
-## Project Structure
-
-*   `puzzles/`: Contains example puzzle files in JSON format.
-*   `src/`: Core source code for the puzzle representation and solvers.
-    *   `cage.py`: Represents a single cage constraint.
-    *   `puzzle.py`: Represents the KenKen grid and puzzle state.
-    *   `solver.py`: Contains the solving algorithms (currently backtracking).
-    *   `visualizer.py`: Handles the Pygame visualization.
-    *   `vision_solver.py`: Handles computer vision and OCR for puzzle recognition.
-*   `tests/`: Unit tests for the components (basic structure provided).
-*   `main.py`: Command-line interface to run the solver.
-*   `requirements.txt`: Lists Python package dependencies.
+- **Puzzle Generation:** Create KenKen puzzles of sizes ranging from 3x3 to 9x9 with valid solutions.
+- **Puzzle Solving:** Solve puzzles using various algorithms:
+  - Backtracking
+  - Minimum Remaining Values (MRV)
+  - Least Constraining Value (LCV)
+  - Combined heuristics
+  - Supervised solvers using Decision Tree, Random Forest, and KMeans clustering.
+- **Manual Play:** Interactive GUI to play puzzles manually with input validation and solution checking.
+- **Visualization:** Visualize the solving process and puzzle grids.
+- **Performance Tracking:** Record solver accuracy, elapsed time, and nodes visited for analysis.
+- **Extensible Design:** Modular codebase for easy extension and experimentation.
 
 ## Installation
 
-1.  Make sure you have Python 3.6+ installed.
-2.  Install Tesseract OCR:
-    *   **Windows**: Download and install from [GitHub](https://github.com/UB-Mannheim/tesseract/wiki)
-    *   **macOS**: `brew install tesseract`
-    *   **Linux**: `sudo apt-get install tesseract-ocr`
-3.  Install Python dependencies:
-    ```bash
-    pip install -r requirements.txt
-    ```
+### Prerequisites
 
-## How to Run
+- Python 3.8 or higher
+- pip package manager
 
-1.  **With Visualization:**
-    ```bash
-    python main.py puzzles/4x4_easy.json --visualize
-    ```
-    *(Optional flags: `--delay MS` to change step speed, `--cell_size PX` for cell size)*
+### Steps
 
-2.  **Without Visualization (Text Mode):**
-    ```bash
-    python main.py puzzles/4x4_easy.json
-    ```
+1. Clone or download the repository:
 
-3.  **With Computer Vision:**
-    ```bash
-    python -m src.vision_solver --size 4
-    ```
-    *(Optional: specify puzzle size with `--size N` where N is between 3 and 9)*
+```bash
+git clone <repository-url>
+cd kenken_project
+```
 
-4.  To run basic tests:
-    ```bash
-    python -m unittest discover tests
-    ```
+2. (Optional but recommended) Create and activate a virtual environment:
 
-## Future Enhancements (TODO)
+```bash
+python -m venv venv
+# On Windows
+venv\Scripts\activate
+# On macOS/Linux
+source venv/bin/activate
+```
 
-*   Implement more efficient solvers (Forward Checking, Arc Consistency).
-*   Implement heuristics (MRV, LCV).
-*   Add puzzle generation capabilities.
-*   Develop a puzzle difficulty estimator.
-*   Explore ML integration.
-*   Add more comprehensive unit tests.
+3. Install the required Python packages:
+
+```bash
+pip install -r requirements.txt
+```
+
+### Dependencies
+
+The project depends on several libraries including but not limited to:
+
+- `pygame` for graphical components
+- `scikit-learn`, `tensorflow`, `torch` for machine learning solvers
+- `numpy`, `pandas`, `seaborn`, `matplotlib` for data processing and visualization
+- `opencv-python`, `pytesseract`, `pymupdf` for image processing (optional)
+- `joblib` for model persistence
+
+## Usage
+
+Run the main application GUI:
+
+```bash
+python main.py
+```
+
+### GUI Overview
+
+The main window provides three primary options:
+
+1. **Solve:**  
+   - Select puzzle size (3x3 to 9x9).  
+   - Choose a puzzle file from the `puzzles/` directory.  
+   - Select a solving algorithm (backtracking, MRV, LCV, heuristics, or supervised solvers).  
+   - View solver results including solution grid, accuracy (if solution available), and performance metrics.
+
+2. **Generate:**  
+   - Enter desired puzzle size (3 to 9).  
+   - Generate a new KenKen puzzle with a valid solution.  
+   - Puzzle and solution are saved automatically to the `puzzles/` directory.
+
+3. **Play:**  
+   - Select a puzzle to play manually.  
+   - Input numbers into the grid with real-time validation.  
+   - Validate your solution against the correct answer.  
+   - Clear inputs and retry as needed.
+
+### Command Line Usage (Advanced)
+
+While the GUI is the primary interface, the modular codebase allows for programmatic puzzle generation, solving, and analysis via the modules in the `src/` directory.
+
+## Project Structure
+
+```
+kenken_project/
+│
+├── main.py                  # Main application entry point with GUI
+├── requirements.txt         # Python dependencies
+├── accuracy_results.csv     # Records solver accuracy and performance metrics
+├── puzzles/                 # JSON files of KenKen puzzles and solutions
+├── pseudocode/              # Pseudocode and notes related to puzzle solving
+├── src/                     # Source code modules
+│   ├── __init__.py
+│   ├── accuracy_recorder.py
+│   ├── cage.py
+│   ├── generator.py
+│   ├── model_comparison.png
+│   ├── puzzle.py
+│   ├── solver.py
+│   ├── supervised_solver.py
+│   ├── utils.py
+│   ├── validate_grid.py
+│   └── visualizer.py
+├── tests/                   # Unit tests for various components
+└── venvcw/                  # Virtual environment (optional)
+```
+
+## Troubleshooting
+
+- Ensure all dependencies are installed correctly.
+- If puzzles fail to load, verify JSON file integrity in the `puzzles/` directory.
+- For issues with supervised solvers, confirm compatible versions of TensorFlow and PyTorch are installed.
+- Use the terminal or command prompt to view error messages when running `main.py`.
