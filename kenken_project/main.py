@@ -179,6 +179,7 @@ def main_window():
                 puzzle, solution = load_puzzle_from_file(puzzle_path)
                 from src.supervised_solver import SupervisedSolver
                 from src.accuracy_recorder import AccuracyRecorder
+                from src.visualizer import KenKenRenderer
 
                 accuracy_recorder = AccuracyRecorder()
 
@@ -218,6 +219,18 @@ def main_window():
                 result_text.insert(tk.END, "Solved Grid:\n")
                 for row in solved:
                     result_text.insert(tk.END, " ".join(str(val) for val in row) + "\n")
+
+                # Display operator and target info for each cage
+                result_text.insert(tk.END, "\nCage Operator and Target Info:\n")
+                for cage in puzzle.cages:
+                    cells_str = ", ".join([f"({r},{c})" for r, c in cage.cells])
+                    op_target_str = f"{cage.operation_str}{cage.value}"
+                    result_text.insert(tk.END, f"Cage {op_target_str} Cells: {cells_str}\n")
+
+                # Launch visualizer window
+                visualizer = KenKenRenderer(puzzle.size, puzzle)
+                visualizer.draw_grid(puzzle.cages, solved)
+                visualizer.wait_for_close("Supervised Solver Visualization - Close window to exit")
 
             except Exception as e:
                 messagebox.showerror("Error", str(e))
@@ -286,6 +299,17 @@ def main_window():
                 print(f"Recording CSP accuracy: algorithm={algorithm}, size={puzzle.size}, accuracy={accuracy}, elapsed_time={elapsed_time_corrected}, nodes_visited={nodes_visited}")
                 accuracy_recorder.record(algorithm, puzzle.size, puzzle_file=os.path.basename(puzzle_path), accuracy=accuracy, elapsed_time=elapsed_time_corrected, nodes_visited=nodes_visited)
 
+                # Print summary info in terminal
+                if success:
+                    solution_count = getattr(solver, 'solution_count', 'N/A')
+                    print(f"{algorithm}: Solution found! Total solutions: {solution_count}")
+                else:
+                    print(f"{algorithm}: No solution found.")
+                print(f"Time taken: {elapsed_time_corrected:.4f} seconds")
+                print(f"Nodes visited: {nodes_visited}")
+                print(f"Model type: {algorithm}")
+
+                print(f"Solved: {success}, Metrics: {metrics}")
 
                 info_message = f"Solved: {success}\nMetrics: {metrics}\nNodes Visited: {metrics.get('nodes_visited', 'N/A')}\nTime Taken: {elapsed_time:.2f} seconds"
                 if accuracy is not None:

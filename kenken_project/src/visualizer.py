@@ -811,8 +811,9 @@ class ProcessVisualizer:
             for c in range(self.puzzle.size):
                 value = solver.puzzle.get_cell_value(r, c)
                 self.update(r, c, value, delay_ms=300)  # Add delay for visualization
-        success, _ = solver.solve(method=method)
+        success, metrics = solver.solve(method=method)
         self.finish(success, method)
+        return success, metrics
 
     def update(self, row, col, value, delay_ms=300):
         """Update the visualization with the current solving step."""
