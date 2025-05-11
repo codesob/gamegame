@@ -12,17 +12,30 @@ class SupervisedSolver:
         self.size = puzzle.size
         self.solution_grid = solution_grid
         self.model = None
+        # Operator encoding map
+        self.operator_map = {'+': 0, '-': 1, '*': 2, '/': 3}
+
+    def encode_operator(self, op_str):
+        return self.operator_map.get(op_str, -1)  # -1 for unknown
 
     def extract_features_and_labels(self):
         """
         Extract features and labels from the puzzle grid for supervised learning.
+        Features now include row, col, operator (encoded), and target.
         Uses solution_grid if provided, else uses puzzle grid.
         """
         X = []
         y = []
         for r in range(self.size):
             for c in range(self.size):
-                features = [r, c]
+                cage = self.puzzle.get_cage(r, c)
+                if cage:
+                    op_encoded = self.encode_operator(cage.operation_str)
+                    target = cage.value
+                else:
+                    op_encoded = -1
+                    target = 0
+                features = [r, c, op_encoded, target]
                 X.append(features)
                 if self.solution_grid is not None:
                     y.append(self.solution_grid[r][c])
@@ -50,7 +63,14 @@ class SupervisedSolver:
     def predict(self, row, col):
         if self.model is None:
             raise ValueError("Model not trained yet")
-        features = np.array([[row, col]])
+        cage = self.puzzle.get_cage(row, col)
+        if cage:
+            op_encoded = self.encode_operator(cage.operation_str)
+            target = cage.value
+        else:
+            op_encoded = -1
+            target = 0
+        features = np.array([[row, col, op_encoded, target]])
         if isinstance(self.model, KMeans):
             # For clustering, return cluster label
             return self.model.predict(features)[0]
