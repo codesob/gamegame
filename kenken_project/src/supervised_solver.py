@@ -12,6 +12,7 @@ class SupervisedSolver:
         self.size = puzzle.size
         self.solution_grid = solution_grid
         self.model = None
+        self.nodes_visited = None
         # Operator encoding map
         self.operator_map = {'+': 0, '-': 1, '*': 2, '/': 3}
 
@@ -63,6 +64,7 @@ class SupervisedSolver:
     def predict(self, row, col):
         if self.model is None:
             raise ValueError("Model not trained yet")
+        self.nodes_visited += 1  # Count each prediction as a node visit
         cage = self.puzzle.get_cage(row, col)
         if cage:
             op_encoded = self.encode_operator(cage.operation_str)
@@ -79,8 +81,9 @@ class SupervisedSolver:
 
     def solve(self):
         """
-        Example solve method that predicts values for all cells.
+        Solve method that predicts values for all cells and tracks nodes visited.
         """
+        self.nodes_visited = 0  # Reset counter at start to integer 0
         solved_grid = [[0]*self.size for _ in range(self.size)]
         for r in range(self.size):
             for c in range(self.size):

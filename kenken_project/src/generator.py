@@ -153,10 +153,18 @@ def save_puzzle(puzzle, solution, base_dir="puzzles"):
     
     return filepath
 
-def visualize_puzzle(puzzle, solution=None):
+def visualize_puzzle(puzzle, solution=None, is_main_window=True):
     """Visualize the generated puzzle using pygame."""
+    import pygame
     from .visualizer import KenKenRenderer
     from .cage import Cage
+    import time
+    
+    # Ensure pygame is initialized
+    if not pygame.get_init():
+        pygame.init()
+    if not pygame.font.get_init():
+        pygame.font.init()
     
     # Convert dictionary cages to Cage objects
     cage_objects = []
@@ -168,12 +176,34 @@ def visualize_puzzle(puzzle, solution=None):
         )
         cage_objects.append(cage)
     
-    renderer = KenKenRenderer(puzzle['size'])
-    running = True
-    
-    while running:
-        renderer.draw_grid(cage_objects, solution)
-        renderer.handle_events(lambda: print("Solve button clicked"))
+    renderer = None
+    try:
+        # Create renderer with window type specification
+        renderer = KenKenRenderer(puzzle['size'], puzzle, is_main_window=is_main_window)
+        
+        # Main visualization loop
+        while renderer and renderer.running:
+            try:
+                if not renderer.draw_grid(cage_objects, solution):
+                    break
+                if not renderer.handle_events(lambda: print("Solve button clicked")):
+                    break
+                pygame.time.wait(10)  # Add a small delay to prevent high CPU usage
+            except pygame.error:
+                break
+            
+    except Exception as e:
+        print(f"Error during visualization: {e}")
+    finally:
+        # Ensure cleanup happens in the correct order
+        if renderer and renderer.running:
+            renderer.running = False
+            time.sleep(0.05)  # Brief delay before cleanup
+            renderer.quit()
+            # Collect garbage to help clean up resources
+            import gc
+            gc.collect()
+            time.sleep(0.05)  # Brief delay after cleanup
 
 if __name__ == "__main__":
     size = int(input("Enter KenKen puzzle size (3-9): "))

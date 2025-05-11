@@ -1,7 +1,14 @@
+# --- Imports ---
 import pygame
 import sys
 import time
-from typing import Optional, Callable, Dict, Set, Tuple as TypingTuple, List  # Avoid collision with pygame.Tuple
+from typing import Optional, Callable, Dict, Set, Tuple as TypingTuple, List
+
+# --- Initialize Pygame ---
+pygame.init()
+if not pygame.font.get_init():
+    pygame.font.init()
+
 from .puzzle import Puzzle
 from .cage import Cage
 
@@ -23,27 +30,85 @@ HIGHLIGHT_COLOR = (255, 255, 150)  # Yellowish highlight for current cell
 
 
 class KenKenRenderer:
-    def __init__(self, size: int, puzzle: Puzzle, width: int = 600, height: int = 600):
-        pygame.init()
+    def __init__(self, size: int, puzzle: Puzzle, width: int = 600, height: int = 600, is_main_window: bool = True):
+        """Initialize the renderer.
+        is_main_window: True if this is the main puzzle window, False for visualization windows"""
         self.size = size
-        self.puzzle = puzzle  # Store the puzzle object
+        self.puzzle = puzzle
         self.width = width
         self.height = height
-        self.screen = pygame.display.set_mode((width, height))
-        pygame.display.set_caption('KenKen Puzzle')
-
+        self.running = True
+        self.is_main_window = is_main_window
+        
+        # Initialize pygame components
+        self._initialize_pygame()
+        
         # Colors
         self.WHITE = (255, 255, 255)
         self.BLACK = (0, 0, 0)
         self.GRAY = (200, 200, 200)
         self.BLUE = (0, 0, 255)
 
-        # Calculate cell size
+        # Calculate cell size and set up fonts
         self.cell_size = min(width, height) // size
-        self.font = pygame.font.Font(None, self.cell_size // 2)
-        self.small_font = pygame.font.Font(None, self.cell_size // 3)
-        self.number_font = pygame.font.Font(None, self.cell_size // 2)  # Same size as main font
-        self.clock = pygame.time.Clock()  # Initialize clock for timing
+        self._initialize_fonts()
+        self.clock = pygame.time.Clock()
+        
+    def _initialize_pygame(self):
+        """Initialize pygame and display safely."""
+        if not pygame.get_init():
+            pygame.init()
+        if not pygame.font.get_init():
+            pygame.font.init()
+            
+        try:
+            self.screen = pygame.display.set_mode((self.width, self.height))
+            pygame.display.set_caption('KenKen Puzzle')
+        except pygame.error as e:
+            print(f"Error setting up display: {e}")
+            self.running = False
+            raise
+            
+    def _initialize_fonts(self):
+        """Initialize fonts safely."""
+        if not pygame.font.get_init():
+            pygame.font.init()
+        
+        try:
+            self.font = pygame.font.Font(None, self.cell_size // 2)
+            self.small_font = pygame.font.Font(None, self.cell_size // 3)
+            self.number_font = pygame.font.Font(None, self.cell_size // 2)
+        except pygame.error as e:
+            print(f"Error initializing fonts: {e}")
+            self.running = False
+            raise
+
+    def quit(self):
+        """Clean up resources safely and clear cache."""
+        self.running = False
+        try:
+            # Clear any existing event queue
+            pygame.event.clear()
+            # Clear display and surface cache
+            if hasattr(self, 'screen'):
+                self.screen.fill((0,0,0))
+                pygame.display.flip()
+                self.screen = None
+            # Unload fonts
+            if hasattr(self, 'font'):
+                del self.font
+            if hasattr(self, 'small_font'):
+                del self.small_font
+            if hasattr(self, 'number_font'):
+                del self.number_font
+            # Quit display
+            pygame.display.quit()
+            # Clean up other pygame resources
+            pygame.font.quit()
+            if not self.is_main_window:
+                pygame.quit()
+        except:
+            pass  # Ignore cleanup errors
 
     def draw_buttons(self):
         """Remove buttons from the visualization."""
@@ -73,33 +138,41 @@ class KenKenRenderer:
 
     def draw_grid(self, cages: List[Cage], values: Optional[List[List[int]]] = None):
         """Draw the complete KenKen grid with cages and values."""
-        self.screen.fill(self.WHITE)
+        if not self.running:
+            return False
 
-        # Draw values first
-        if values:
-            self._draw_values(values)
+        try:
+            # Clear the screen
+            self.screen.fill(self.WHITE)
+            
+            # Draw the grid
+            for i in range(self.size + 1):
+                # Vertical lines
+                pygame.draw.line(self.screen, self.GRAY,
+                               (i * self.cell_size, 0),
+                               (i * self.cell_size, self.size * self.cell_size))
+                # Horizontal lines
+                pygame.draw.line(self.screen, self.GRAY,
+                               (0, i * self.cell_size),
+                               (self.size * self.cell_size, i * self.cell_size))
 
-        # Draw cages after values to ensure cage information is visible
-        for cage in cages:
-            self._draw_cage(cage)
+            # Draw cages and values
+            for cage in cages:
+                self._draw_cage(cage)
+            if values:
+                self._draw_values(values)
 
-        # Draw grid lines
-        for i in range(self.size + 1):
-            # Vertical lines
-            pygame.draw.line(self.screen, self.BLACK,
-                             (i * self.cell_size, 0),
-                             (i * self.cell_size, self.size * self.cell_size),
-                             2 if i % self.size == 0 else 1)
-            # Horizontal lines
-            pygame.draw.line(self.screen, self.BLACK,
-                             (0, i * self.cell_size),
-                             (self.size * self.cell_size, i * self.cell_size),
-                             2 if i % self.size == 0 else 1)
+            # Draw solve button
+            self.draw_solve_button()
 
-        # Draw solve button
-        self.solve_button = self.draw_solve_button()
+            # Update display and maintain timing
+            pygame.display.flip()
+            self.clock.tick(60)  # Cap at 60 FPS
+            return True
 
-        pygame.display.flip()
+        except pygame.error:
+            self.running = False
+            return False
 
     def _draw_cage(self, cage: Cage):
         """Draw a single cage with its operation and target."""
@@ -162,19 +235,29 @@ class KenKenRenderer:
         """Process Pygame events and handle button clicks."""
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                pygame.quit()
-                return False
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
+                self.running = False
+                if self.is_main_window:
+                    # If this is the main puzzle window, quit pygame completely
+                    pygame.font.quit()
+                    pygame.display.quit()
                     pygame.quit()
-                    return False
-            if event.type == pygame.WINDOWFOCUSLOST:
-                # Don't quit when window loses focus
-                continue
-            if event.type == pygame.WINDOWMINIMIZED:
-                # Don't quit when window is minimized
-                continue
-        return True
+                    import sys
+                    sys.exit()
+                else:
+                    # For other windows, just close this window and clear its resources
+                    self.quit()
+                return False
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                # Handle button clicks...
+                mouse_pos = pygame.mouse.get_pos()
+                button_x = (self.width - self.width // 4) // 2
+                button_y = self.size * self.cell_size + 20
+                button_rect = pygame.Rect(button_x, button_y, self.width // 4, self.height // 10)
+                
+                if button_rect.collidepoint(mouse_pos):
+                    solve_callback()
+        
+        return True # Continue running
 
     def wait_for_solve_button(self, solve_callback):
         """Wait for the user to click the solve button."""
@@ -288,12 +371,31 @@ class KenKenRenderer:
                 pygame.display.flip()  # Keep window responsive
 
     def quit(self):
-        """Cleans up Pygame."""
+        """Clean up resources safely and clear cache."""
+        self.running = False
         try:
+            # Clear any existing event queue
+            pygame.event.clear()
+            # Clear display and surface cache
+            if hasattr(self, 'screen'):
+                self.screen.fill((0,0,0))
+                pygame.display.flip()
+                self.screen = None
+            # Unload fonts
+            if hasattr(self, 'font'):
+                del self.font
+            if hasattr(self, 'small_font'):
+                del self.small_font
+            if hasattr(self, 'number_font'):
+                del self.number_font
+            # Quit display
             pygame.display.quit()
-            pygame.quit()
-        except pygame.error:
-            pass  # Ignore errors during cleanup
+            # Clean up other pygame resources
+            pygame.font.quit()
+            if not self.is_main_window:
+                pygame.quit()
+        except:
+            pass  # Ignore cleanup errors
 
     def show_message(self, message: str, color: tuple = (0, 0, 0)):
         """Display a message at the bottom of the screen."""
@@ -686,36 +788,57 @@ class KenKenVisualizer:
         """Process Pygame events and handle button clicks."""
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
+                self.running = False
+                if self.is_main_window:
+                    # If this is the main puzzle window, quit pygame completely
+                    pygame.font.quit()
+                    pygame.display.quit()
+                    pygame.quit()
+                    import sys
+                    sys.exit()
+                else:
+                    # For other windows, just close this window and clear its resources
+                    self.quit()
                 return False
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
-                    return False
-            if event.type == pygame.WINDOWFOCUSLOST:
-                # Don't quit when window loses focus
-                continue
-            if event.type == pygame.WINDOWMINIMIZED:
-                # Don't quit when window is minimized
-                continue
-        return True
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                # Handle button clicks...
+                mouse_pos = pygame.mouse.get_pos()
+                button_x = (self.width - self.width // 4) // 2
+                button_y = self.size * self.cell_size + 20
+                button_rect = pygame.Rect(button_x, button_y, self.width // 4, self.height // 10)
+                
+                if button_rect.collidepoint(mouse_pos):
+                    solve_callback()
+        
+        return True # Continue running
 
-    def wait_for_close(self, message="Solver finished. Close the window to exit."):
-        """Keeps the window open after solving until user closes it."""
+    def wait_for_close(self, message="Solver finished. Close the window to exit.", auto_close=False, auto_close_time=10):
+        """Keeps the window open after solving until the user closes it or auto closes after timeout."""
         self.show_message(message)
         pygame.display.flip()  # Ensure message is shown
 
-        running = True
-        while running:
-            running = self.handle_events(lambda: None)
-            self.clock.tick(30)  # Keep CPU usage reasonable while waiting
-            pygame.display.flip()  # Keep window responsive
+        if auto_close:
+            start_ticks = pygame.time.get_ticks()
+            running = True
+            while running:
+                running = self.handle_events(lambda: None)
+                self.clock.tick(30)  # Keep CPU usage reasonable while waiting
+                pygame.display.flip()  # Keep window responsive
+                seconds_passed = (pygame.time.get_ticks() - start_ticks) / 1000
+                if seconds_passed >= auto_close_time:
+                    running = False
+        else:
+            running = True
+            while running:
+                running = self.handle_events(lambda: None)
+                self.clock.tick(30)  # Keep CPU usage reasonable while waiting
+                pygame.display.flip()  # Keep window responsive
 
-    def quit(self):
-        """Cleans up Pygame."""
-        try:
-            pygame.display.quit()
-            pygame.quit()
-        except pygame.error:
-            pass  # Ignore errors during cleanup
+    def cleanup(self):
+        """Clean up pygame resources when done."""
+        pygame.display.quit()  # Close the window
+        if pygame.get_init():
+            pygame.quit()  # Quit pygame if we're the last one using it
 
     def start_visualization(self, puzzle, delay_ms=300):
         """Initialize visualization and start solving."""
@@ -800,6 +923,7 @@ class KenKenVisualizer:
 
 class ProcessVisualizer:
     """Handles the visualization of the solving process."""
+    
     def __init__(self, puzzle):
         self.puzzle = puzzle
         self.renderer = KenKenRenderer(puzzle.size, puzzle)
@@ -807,12 +931,26 @@ class ProcessVisualizer:
     def start(self, solver, method):
         """Initialize the visualization and start solving."""
         self.renderer.draw_grid(self.puzzle.cages)
+        # Clear any existing values
         for r in range(self.puzzle.size):
             for c in range(self.puzzle.size):
                 value = solver.puzzle.get_cell_value(r, c)
                 self.update(r, c, value, delay_ms=300)  # Add delay for visualization
+        
+        # Start solving and get metrics
         success, metrics = solver.solve(method=method)
+        
+        # Show final state
         self.finish(success, method)
+        
+        # Ensure metrics are complete
+        if metrics is None:
+            metrics = {}
+        if 'nodes_visited' not in metrics:
+            metrics['nodes_visited'] = solver.nodes_visited
+        if 'time_seconds' not in metrics:
+            metrics['time_seconds'] = 0
+        
         return success, metrics
 
     def update(self, row, col, value, delay_ms=300):
@@ -831,4 +969,3 @@ class ProcessVisualizer:
     def finish(self, success, solving_method):
         """Finalize the visualization with the solving result."""
         self.renderer.finish_visualization(success, solving_method)
-repr("")
