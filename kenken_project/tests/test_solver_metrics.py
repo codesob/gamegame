@@ -1,9 +1,12 @@
-from puzzle import Puzzle
-from solver import Solver
+import sys
+import os # Added os for path operations, though Pathlib is also used
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from src.puzzle import Puzzle
+from src.solver import Solver
 from pathlib import Path
-from accuracy_nodes_recorder import AccuracyNodesRecorder
+from src.accuracy_recorder import AccuracyRecorder
 import json
-import os
 
 def load_puzzle_from_file(filepath):
     """Load puzzle and solution from JSON file."""
@@ -17,7 +20,7 @@ def load_puzzle_from_file(filepath):
 def test_all_methods(filepath):
     puzzle, solution = load_puzzle_from_file(filepath)
     solver = Solver(puzzle)
-    recorder = AccuracyNodesRecorder()
+    recorder = AccuracyRecorder()
     puzzle_size = puzzle.size
     puzzle_file = os.path.basename(filepath)
     
@@ -26,7 +29,7 @@ def test_all_methods(filepath):
         'backtracking',
         'mrv',
         'lcv',
-        'heuristic',
+        'heuristics', # Changed for consistency
         'supervised_mrv_lcv'
     ]
     
@@ -57,19 +60,26 @@ def test_all_methods(filepath):
             )
 
 def main():
-    # Test on different sized puzzles
-    sizes = [3, 5, 7, 9]  # Testing on various sizes
     puzzles_dir = Path(__file__).parent.parent / "puzzles"
     
-    for size in sizes:
-        # Find a puzzle of this size
-        pattern = f"kenken_{size}x{size}_*.json"
-        matching_files = list(puzzles_dir.glob(pattern))
-        if matching_files:
-            # Use the first matching puzzle file
-            puzzle_file = str(matching_files[0])
-            print(f"\n=== Testing {size}x{size} puzzle ===")
-            test_all_methods(puzzle_file)
+    # Find all puzzle files
+    puzzle_files = sorted(list(puzzles_dir.glob("*.json")))
+
+    if not puzzle_files:
+        print(f"No JSON puzzle files found in {puzzles_dir}. Nothing to test.")
+        return
+
+    print(f"Found {len(puzzle_files)} puzzle files in {puzzles_dir}. Starting tests...")
+
+    for puzzle_file_path_obj in puzzle_files:
+        puzzle_file_str = str(puzzle_file_path_obj)
+        print(f"\n=== Testing puzzle: {puzzle_file_path_obj.name} ===")
+        try:
+            test_all_methods(puzzle_file_str)
+        except Exception as e:
+            print(f"  ERROR processing {puzzle_file_path_obj.name}: {e}")
+            print(f"  Skipping this puzzle file.")
+            continue # Move to the next puzzle file
 
 if __name__ == "__main__":
     main()
